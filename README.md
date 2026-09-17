@@ -1,4 +1,4 @@
-# xwrt
+# xDivine-Ray
 
 A device-independent Xray proxy manager for OpenWrt.
 
