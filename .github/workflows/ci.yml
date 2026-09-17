@@ -57,4 +57,11 @@ jobs:
       - run: sh test/teardown.sh
       # And the real install/upgrade/uninstall/rollback cycle, which writes to
       # absolute paths — hence a whole runner to itself.
-      - run: sudo sh test/install.sh
+      #
+      # `sudo -E env PATH=$PATH` rather than plain sudo: sudo replaces PATH
+      # with its own secure_path, which does not contain the Go that
+      # setup-go just installed — and this script builds a bundle before it
+      # installs it. Plain sudo fails with "env: 'go': No such file or
+      # directory", which reads like a broken test rather than a missing
+      # PATH.
+      - run: sudo -E env "PATH=$PATH" sh test/install.sh

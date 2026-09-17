@@ -39,6 +39,16 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 BUNDLE="${BUNDLE:-}"
+if [ -z "$BUNDLE" ] && ! command -v go >/dev/null 2>&1; then
+	# Said here rather than inside the build, because the build's own message
+	# ("env: 'go': No such file or directory") reads like a broken test.
+	echo "go is not on PATH, and this test builds a bundle before installing it." >&2
+	echo "Under sudo that usually means sudo's own PATH: try" >&2
+	echo "  sudo -E env \"PATH=\$PATH\" sh test/install.sh" >&2
+	echo "or point it at a bundle that is already built:" >&2
+	echo "  BUNDLE=release/xwrt-x86_64.tar.gz sh test/install.sh" >&2
+	exit 1
+fi
 if [ -z "$BUNDLE" ]; then
 	# Into its own directory: this bundle is a throwaway, and writing it to
 	# release/ would replace whatever is there — including, at the wrong
