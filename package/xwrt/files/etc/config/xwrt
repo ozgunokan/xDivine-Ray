@@ -1,0 +1,178 @@
+config xwrt 'main'
+	# Set by the daemon when you connect; do not edit by hand.
+	# active names either a profile or a group; active_kind says which.
+	option enabled '0'
+	option active ''
+	option active_kind 'profile'
+
+	# How LAN traffic is captured. NAT redirect cannot carry UDP (an
+	# application recovers the pre-NAT destination with SO_ORIGINAL_DST, which
+	# exists only for TCP), so anything that proxies UDP uses TPROXY or the
+	# TUN device instead.
+	#
+	#   redirect  TCP via NAT redirect, UDP not proxied.
+	#             Most compatible: no extra module, no extra process.
+	#   mixed     TCP via NAT redirect, UDP through the TUN device.
+	#             Default. No tproxy module needed; UDP crosses a userspace
+	#             stack and hev-socks5-tunnel must be installed.
+	#   tproxy    TCP and UDP both via TPROXY, entirely in the kernel.
+	#             Fastest for UDP; needs kmod-nft-tproxy or kmod-ipt-tproxy.
+	#   tun       Everything through the TUN device.
+	option mode 'mixed'
+
+	# Ports the core listens on. Change them if something else is using one.
+	option socks_port '10808'
+	option http_port '10809'
+	option tproxy_port '12345'
+	option dns_port '15353'
+	option stats_port '10085'
+
+	# Loopback-only control API used by the CLI and LuCI.
+	option api_port '8787'
+
+	# dnsmasq  = point the system resolver at the core (keeps local names working)
+	# redirect = hijack port 53 in the firewall
+	# off      = leave DNS alone
+	option dns_mode 'dnsmasq'
+	option dns '1.1.1.1'
+
+	# Also proxy traffic the router itself originates.
+	option proxy_router '0'
+
+	# Expose the SOCKS/HTTP inbounds to the LAN, not just to the router.
+	option allow_lan '1'
+
+	# Reconnect at boot to the last used profile.
+	option auto_connect '1'
+
+	option ipv6 '0'
+
+	# How much the proxy core says. warning is the useful default: errors and
+	# warnings only. info and debug additionally turn on the core's access log,
+	# one line per connection — useful for seeing which sites are visited, but
+	# on a busy line it churns the log buffer fast enough to bury the entry
+	# that explains a failure.
+	#
+	# Whatever this is set to, warnings and errors are also copied to the system
+	# log, so they survive a restart of this service:
+	#
+	#   logread -e xwrt          everything xwrt has reported
+	#   xwrt errors              failures only, with cause and suggested fix
+	#   xwrt logs 100 error      the in-memory log, filtered
+	option log_level 'warning'
+
+	# Leave lan_device and wan_device unset: the daemon detects them at
+	# runtime, which is what lets the same build work on any OpenWrt device.
+	# Set them only to override a wrong guess.
+	# option lan_device 'br-lan'
+	# option wan_device 'eth1'
+
+	option xray_bin '/usr/bin/xray'
+	option hev_bin '/usr/bin/hev-socks5-tunnel'
+	option run_dir '/var/run/xwrt'
+
+	# TUN parameters, used by mixed and tun modes. If you rename tun_name,
+	# update the firewall zone created in /etc/config/firewall to match.
+	option tun_name 'xwrt0'
+	option tun_addr '198.18.0.1'
+	option tun_mask '255.255.0.0'
+	option tun_mtu '8500'
+
+	# Base for the three marks: the core's own socket mark (base), the TPROXY
+	# mark (base+1) and the mark steering mixed-mode UDP into the tunnel
+	# (base+2). Plus the routing table holding the TUN default route. Change
+	# only on a conflict.
+	option fwmark '0x1e0'
+	option route_table '180'
+
+	# Destinations that must never go through the proxy. LAN networks are
+	# added automatically.
+	# list bypass_ip '203.0.113.0/24'
+
+	# Clients excluded from transparent proxying entirely.
+	# list bypass_mac 'aa:bb:cc:dd:ee:ff'
+
+# Servers are normally added with `xwrt import '<share link>'` or from LuCI,
+# which is also why the option names below are the short ones share links use
+# (net, fp, pbk, sid). An option xwrt does not recognise is reported at startup
+# — `logread -e xwrt` — rather than silently ignored.
+#
+# One field needs explaining. Recent Xray builds removed `allowInsecure`, so a
+# server with a self-signed certificate, or one presenting a certificate for a
+# different name than the SNI, can no longer be reached by skipping
+# verification. The replacement is pinned_cert: the SHA-256 of the certificate
+# that server presents. Fill it in from the device itself with
+#
+#   xwrt fetch-cert <profile-id>        (or the "Pin cert" button in LuCI)
+#
+# which reads the certificate over the same path the connection will use and
+# turns allow_insecure off. Re-run it when the server renews its certificate.
+# Pinning is not a workaround for the old flag but an improvement on it:
+# "accept any certificate" also accepts an interceptor's, a pin accepts one.
+#
+# config profile 'pexample1'
+# 	option name 'Server'
+# 	option proto 'vless'
+# 	option address 'server.example.com'
+# 	option port '443'
+# 	option uuid '...'
+# 	option net 'tcp'
+# 	option security 'tls'
+# 	option sni 'server.example.com'
+# 	option fp 'chrome'
+# 	option flow 'xtls-rprx-vision'
+# 	option pinned_cert 'fe7044…'
+
+# Groups connect to several servers at once and let the core choose between
+# them. Create them from LuCI or with `xwrt group-add`.
+#
+#   leastPing   probe every member, use the fastest, drop ones that stop
+#               answering. This is the setting that gives failover.
+#   leastLoad   sample latency repeatedly and prefer the steadiest member.
+#   random      spread connections at random; a dead member keeps its share.
+#   roundRobin  cycle through members in order, same caveat as random.
+#
+# config group 'gexample1'
+# 	option name 'Europe'
+# 	option strategy 'leastPing'
+# 	option probe_url 'https://www.gstatic.com/generate_204'
+# 	option probe_interval '3m'
+# 	list member 'pexample1'
+# 	list member 'pexample2'
+
+# Routing exceptions, checked in order — the first match wins, so put narrow
+# rules above broad ones. Create them from LuCI or with `xwrt rule-add`.
+#
+# Every matcher a rule sets must hold for it to fire. Domain matching works
+# because the core sniffs the TLS SNI or HTTP Host from the first packet; a
+# firewall never sees a domain, which is why these live here and not in
+# nftables.
+#
+# action: direct (keep off the VPN), proxy (force through), block
+#
+# A direct rule also makes the router resolve those names itself, so the site
+# is reached over the normal connection instead of through an address looked up
+# at the far end of the tunnel. A rule scoped with `source` is left out of
+# that, so a per-client exception does not change DNS for everyone.
+#
+# config rule 'rexample1'
+# 	option name 'Bank'
+# 	option enabled '1'
+# 	option action 'direct'
+# 	list domain 'bank.example.com'
+# 	list domain 'domain:gov.tr'
+#
+# config rule 'rexample2'
+# 	option name 'No torrents'
+# 	option enabled '1'
+# 	option action 'block'
+# 	list protocol 'bittorrent'
+#
+# config rule 'rexample3'
+# 	option name 'Printer'
+# 	option enabled '1'
+# 	option action 'direct'
+# 	list ip '192.0.2.0/24'
+# 	list source '192.168.1.50'
+# 	option port '9100'
+# 	option network 'tcp'

@@ -1,0 +1,83 @@
+{
+	"admin/vpn": {
+		"title": "VPN",
+		"order": 60,
+		"action": {
+			"type": "firstchild"
+		}
+	},
+
+	"admin/vpn/xdivine-ray": {
+		"title": "xDivine-Ray",
+		"order": 10,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-xwrt" ]
+		}
+	},
+
+	"admin/vpn/xdivine-ray/status": {
+		"title": "Status",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "xwrt/status"
+		}
+	},
+
+	"admin/vpn/xdivine-ray/profiles": {
+		"title": "Servers",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "xwrt/profiles"
+		}
+	},
+
+	"admin/vpn/xdivine-ray/rules": {
+		"title": "Rules",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "xwrt/rules"
+		}
+	},
+
+	"admin/vpn/xdivine-ray/traffic": {
+		"title": "Traffic",
+		"order": 28,
+		"action": {
+			"type": "view",
+			"path": "xwrt/traffic"
+		}
+	},
+
+	"admin/vpn/xdivine-ray/settings": {
+		"title": "Settings",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "xwrt/settings"
+		}
+	},
+
+	"admin/vpn/xdivine-ray/logs": {
+		"title": "Log",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "xwrt/logs"
+		}
+	},
+
+	"admin/vpn/xdivine-ray/about": {
+		"title": "About",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "xwrt/about"
+		}
+	}
+}

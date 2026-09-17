@@ -1,0 +1,53 @@
+#!/bin/sh /etc/rc.common
+# procd service for the xwrt daemon.
+#
+# The daemon tears its own rules down on SIGTERM, so stopping the service
+# always leaves the device's networking in the state it was before.
+
+USE_PROCD=1
+
+# Start late: the WAN and the firewall should be up first. The daemon still
+# waits for an upstream route itself, this only avoids a pointless wait.
+START=95
+STOP=10
+
+PROG=/usr/sbin/xwrtd
+
+start_service() {
+	mkdir -p /var/run/xwrt
+
+	procd_open_instance xwrt
+	procd_set_param command "$PROG"
+	# Restart on crash, but give up if it fails five times in an hour so a
+	# misconfigured install does not spin forever.
+	procd_set_param respawn 3600 5 5
+	# How long procd waits after SIGTERM before it sends SIGKILL.
+	#
+	# The default is five seconds, and the shutdown does real work in that
+	# window: it takes the capture rules out of the firewall, puts the DNS
+	# configuration back and restarts dnsmasq, brings the tunnel device down and
+	# waits for the core to exit. Restarting dnsmasq alone can take a second or
+	# two on a busy router. Killed halfway, the daemon leaves exactly what it
+	# exists to prevent — rules pointing at a core that is gone — and on an
+	# upgrade nobody notices, because the next start clears them. On an
+	# uninstall there is no next start, and the LAN loses the internet with
+	# nothing left on the device to explain why.
+	procd_set_param term_timeout 30
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param pidfile /var/run/xwrt.pid
+	procd_close_instance
+}
+
+service_triggers() {
+	# Reload when our own config changes, and when the upstream comes back:
+	# a new WAN means new interface names and a new gateway to detect.
+	procd_add_reload_trigger "xwrt"
+	procd_add_reload_interface_trigger "wan"
+}
+
+reload_service() {
+	# SIGHUP makes the daemon re-detect the network and reinstall its rules
+	# without dropping the connection.
+	procd_send_signal xwrt
+}

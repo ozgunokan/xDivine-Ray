@@ -1,0 +1,57 @@
+# Builds a release when a version tag is pushed, and uploads what the in-place
+# updater needs.
+#
+# The updater refuses to install a release that has no sha256sums file — there
+# is no point having an updater that installs whatever it is given — so the
+# checksums are not an optional extra here. This workflow is the reason they
+# cannot be forgotten.
+#
+# It also refuses to publish a tag that disagrees with the VERSION file. That
+# is not pedantry: three releases once went out named for a version whose code
+# was not in them, and a tag is exactly where that starts.
+name: release
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: the tag and the VERSION file must agree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          file="$(cat VERSION)"
+          if [ "$tag" != "$file" ]; then
+            echo "tag $GITHUB_REF_NAME says $tag, VERSION says $file." >&2
+            echo "One of them is wrong, and a release built now would be" >&2
+            echo "named for a version whose code is not in it." >&2
+            exit 1
+          fi
+          echo "releasing $file"
+
+      # Nothing ships that has not passed, because a release is the one build
+      # nobody re-runs the tests on afterwards.
+      - run: go vet ./... && go test ./...
+      - run: sh test/package.sh
+
+      - name: build every architecture
+        run: ./release.sh
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            release/xwrt-*.tar.gz release/sha256sums

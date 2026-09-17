@@ -1,0 +1,56 @@
+{
+	"luci-app-xwrt": {
+		"description": "Access to the xDivine-Ray VPN manager",
+		"read": {
+			"ubus": {
+				"xwrt": [
+					"status",
+					"env",
+					"config",
+					"logs",
+					"errors",
+					"ping",
+					"groups",
+					"rules",
+					"traffic",
+					"connections",
+					"update"
+				]
+			},
+			"uci": [ "xwrt" ]
+		},
+		"write": {
+			"ubus": {
+				"xwrt": [
+					"connect",
+					"disconnect",
+					"reapply_fw",
+					"clear_error",
+					"clear_errors",
+					"clear_log",
+					"selftest",
+					"import",
+					"add_profile",
+					"update_profile",
+					"delete_profile",
+					"fetch_cert",
+					"add_group",
+					"update_group",
+					"delete_group",
+					"add_rule",
+					"update_rule",
+					"delete_rule",
+					"replace_rules",
+					"enable_accounting",
+					"settings",
+					"sub_add",
+					"sub_refresh",
+					"sub_del",
+					"update_check",
+					"update_install"
+				]
+			},
+			"uci": [ "xwrt" ]
+		}
+	}
+}

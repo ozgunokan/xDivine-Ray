@@ -1,0 +1,14 @@
+#!/bin/sh
+# Reinstall the capture rules after a firewall reload.
+#
+# fw4 rebuilds its ruleset from scratch on reload, and some versions flush the
+# whole nftables ruleset while doing so, which takes this daemon's table with
+# it. Asking the daemon to reapply is cheap: it checks first and does nothing
+# when its rules are still in place.
+
+[ -x /usr/sbin/xwrt ] || exit 0
+
+# Run detached so a slow reapply never holds up the firewall reload.
+/usr/sbin/xwrt reapply-fw >/dev/null 2>&1 &
+
+exit 0

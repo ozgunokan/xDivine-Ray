@@ -1,0 +1,230 @@
+#!/bin/sh
+# Take everything xwrt put in the kernel back out, and stop it.
+#
+# This is the half of removing xwrt that matters. Deleting the files is easy;
+# what cannot be got wrong is leaving behind capture rules that point at a core
+# which no longer exists — they black-hole every LAN connection, and the binary
+# that would have explained it has just been deleted.
+#
+# It exists as a file of its own because there are two ways xwrt gets removed
+# and both have to do this: the bundle's uninstall.sh, and the package
+# manager's prerm when someone runs `opkg remove xwrt` or `apk del xwrt`. Those
+# were two copies of the same delicate sequence, which is one copy too many.
+#
+# Safe to run when xwrt is already gone, or was never there: every step checks
+# before it acts.
+#
+#   xwrt-teardown            stop and clean up
+#   xwrt-teardown --check    say what is still there, change nothing
+#
+# Exit status is 0 when nothing of xwrt's is left in the kernel.
+
+CHECK=0
+[ "${1:-}" = "--check" ] && CHECK=1
+
+RUNDIR=$(uci -q get xwrt.main.run_dir 2>/dev/null || echo /var/run/xwrt)
+TUNDEV=$(uci -q get xwrt.main.tun_name 2>/dev/null || echo xwrt0)
+
+# Both are read from a configuration file, and both are about to be used to
+# destroy things: one as a pattern for pkill, the other as an interface to
+# delete. A run directory of "/" would make the pkill below match every process
+# on the device. So neither is trusted further than it can be checked — an
+# unrecognisable value is replaced by the default rather than used.
+case "$RUNDIR" in
+	/*xwrt*) ;;
+	*) RUNDIR=/var/run/xwrt ;;
+esac
+case "$TUNDEV" in
+	# Our own device is named in our own configuration; anything that looks
+	# like one of the device's real interfaces is not ours to delete.
+	br-*|eth*|wan*|lan*|wlan*|wwan*|lo) TUNDEV=xwrt0 ;;
+	*[!a-zA-Z0-9_-]*|"") TUNDEV=xwrt0 ;;
+	*) ;;
+esac
+
+# --- finding our own processes ------------------------------------------------
+#
+# Not with `pkill -f`, which matches a pattern against every process's whole
+# command line. `pkill -f /var/run/xwrt` kills anything that so much as
+# mentions that path — a shell that was started with it somewhere in its
+# arguments, an editor open on a file inside it, the script that is asking. It
+# did exactly that during a test run: the pattern matched the shell running the
+# test and killed it halfway through, which looked like a flaky test and was a
+# loaded gun.
+#
+# So: walk /proc, and act only on a process whose executable is one of ours and
+# whose command line names our run directory. Two conditions, both required,
+# and neither of them a substring of somebody else's command.
+ours() { # ours <kind>, prints pids
+	kind="$1"
+	for entry in /proc/[0-9]*; do
+		pid=${entry#/proc/}
+		comm=$(cat "$entry/comm" 2>/dev/null) || continue
+		args=$(tr '\0' ' ' < "$entry/cmdline" 2>/dev/null) || continue
+		case "$kind" in
+			daemon)
+				# The daemon runs as xwrtd, or as xwrt with the daemon
+				# subcommand. `xwrt status` is also comm=xwrt and must not
+				# match, which is what the second test is for.
+				case "$comm" in
+					xwrtd) echo "$pid" ;;
+					xwrt) case "$args" in *" daemon"*) echo "$pid" ;; esac ;;
+				esac
+				;;
+			core)
+				# The core and the tunnel helper, and only the ones this daemon
+				# started: they are told to read their configuration out of our
+				# run directory, and nothing else on the device is.
+				case "$comm" in
+					xray|hev-socks5-tunnel) ;;
+					*) continue ;;
+				esac
+				case "$args" in *"$RUNDIR"*) echo "$pid" ;; esac
+				;;
+		esac
+	done
+}
+
+end_ours() { # end_ours <kind>
+	pids=$(ours "$1")
+	[ -n "$pids" ] || return 0
+	# shellcheck disable=SC2086
+	kill $pids 2>/dev/null
+	sleep 2
+	pids=$(ours "$1")
+	[ -n "$pids" ] || return 0
+	# shellcheck disable=SC2086
+	kill -9 $pids 2>/dev/null
+}
+
+leftovers() {
+	out=""
+	command -v nft >/dev/null 2>&1 && nft list table ip xwrt >/dev/null 2>&1 &&
+		out="$out capture-rules"
+	[ -f /tmp/dnsmasq.d/xwrt.conf ] && out="$out dnsmasq-snippet"
+	for f in /tmp/dnsmasq.d/*/xwrt.conf; do
+		[ -f "$f" ] && out="$out dnsmasq-snippet"
+		break
+	done
+	[ -f /etc/xwrt-dns.state ] && out="$out dns-state"
+	ip link show "$TUNDEV" >/dev/null 2>&1 && out="$out $TUNDEV"
+	[ -n "$(ours core)" ] && out="$out core-process"
+	echo "$out"
+}
+
+if [ "$CHECK" = 1 ]; then
+	# Which values it settled on, because they come out of a configuration file
+	# and decide what would be killed and which interface would be deleted.
+	# Worth being able to see without running anything.
+	echo "run directory: $RUNDIR"
+	echo "tunnel device: $TUNDEV"
+	left=$(leftovers)
+	if [ -n "$left" ]; then
+		echo "still in the kernel:$left"
+		exit 1
+	fi
+	echo "nothing of xwrt's is left in the kernel"
+	exit 0
+fi
+
+# --- 1. take the tunnel down, properly ---------------------------------------
+#
+# First, and while the daemon is still running, because this is the operation
+# that removes the rules, puts DNS back and takes the tunnel device down. Doing
+# it here means it is not racing procd's patience with a SIGTERM, which is
+# exactly how it used to fail: the shutdown does real work — reverting the
+# firewall, restarting dnsmasq, waiting for the core — and when it did not fit
+# in the five seconds procd allows by default, the daemon was killed halfway
+# and all of it was still there afterwards.
+if [ -x /usr/sbin/xwrt ] && xwrt status >/dev/null 2>&1; then
+	echo "==> disconnecting"
+	xwrt disconnect >/dev/null 2>&1
+	i=0
+	while [ "$i" -lt 15 ]; do
+		xwrt status 2>/dev/null | grep -q '"connected":true' || break
+		sleep 1
+		i=$((i + 1))
+	done
+	if xwrt status 2>/dev/null | grep -q '"connected":true'; then
+		echo "    still connected after ${i}s; carrying on and cleaning up by hand"
+	fi
+fi
+
+# --- 2. stop the service, and wait for it to really be gone ------------------
+if [ -x /etc/init.d/xwrt ]; then
+	echo "==> stopping the service"
+	/etc/init.d/xwrt stop 2>/dev/null
+	/etc/init.d/xwrt disable 2>/dev/null
+fi
+
+i=0
+while [ -n "$(ours daemon)" ] && [ "$i" -lt 15 ]; do
+	sleep 1
+	i=$((i + 1))
+done
+if [ -n "$(ours daemon)" ]; then
+	echo "    the daemon did not stop; ending it"
+	end_ours daemon
+fi
+
+# --- 3. and whatever it left in the kernel -----------------------------------
+#
+# All of this is normally already gone: the daemon removes it on the way out.
+# It is here for the times it did not, which is the case this script exists to
+# survive.
+echo "==> checking what is left in the kernel"
+
+if command -v nft >/dev/null 2>&1 && nft list table ip xwrt >/dev/null 2>&1; then
+	echo "    capture rules were still installed; removing them"
+	nft delete table ip xwrt 2>/dev/null
+fi
+
+dnsmasq_dirty=""
+for f in /tmp/dnsmasq.d/xwrt.conf /tmp/dnsmasq.d/*/xwrt.conf; do
+	[ -f "$f" ] || continue
+	echo "    a dnsmasq snippet was still there; removing it"
+	rm -f "$f"
+	dnsmasq_dirty=1
+done
+# The daemon also edits the dhcp configuration in place, and records that it
+# did in a file outside /tmp, so that a reboot cannot lose the one piece of
+# information needed to put the device back as it was.
+if [ -f /etc/xwrt-dns.state ]; then
+	echo "    the DNS configuration was still pointed at the core"
+	if command -v uci >/dev/null 2>&1; then
+		uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null
+		uci -q set dhcp.@dnsmasq[0].noresolv='0' 2>/dev/null
+		uci -q commit dhcp 2>/dev/null
+	fi
+	rm -f /etc/xwrt-dns.state
+	dnsmasq_dirty=1
+fi
+[ -n "$dnsmasq_dirty" ] && /etc/init.d/dnsmasq restart >/dev/null 2>&1
+
+if ip link show "$TUNDEV" >/dev/null 2>&1; then
+	echo "    the tunnel device $TUNDEV was still up; removing it"
+	ip link set "$TUNDEV" down 2>/dev/null
+	ip link del "$TUNDEV" 2>/dev/null
+fi
+
+# A core or a tunnel helper started from our run directory and orphaned when
+# the daemon was killed. Matched on that directory, so nothing else on the
+# device is touched.
+if [ -n "$(ours core)" ]; then
+	echo "    a core process was still running; ending it"
+	end_ours core
+fi
+
+rm -rf "$RUNDIR"
+
+# --- 4. say what is true, not what was intended ------------------------------
+left=$(leftovers)
+if [ -n "$left" ]; then
+	echo
+	echo "!! this is still in the kernel:$left" >&2
+	echo "!! LAN traffic may be going nowhere. Recover with:" >&2
+	echo "!!   nft delete table ip xwrt; rm -f /tmp/dnsmasq.d/xwrt.conf" >&2
+	echo "!!   /etc/init.d/dnsmasq restart; fw4 restart" >&2
+	exit 1
+fi
+exit 0

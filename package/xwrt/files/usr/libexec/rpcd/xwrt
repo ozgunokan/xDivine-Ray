@@ -1,0 +1,17 @@
+#!/bin/sh
+# rpcd plugin exposing the xwrt daemon as a ubus object, which is how the LuCI
+# app talks to it.
+#
+# The CLI implements the plugin protocol itself, so there is no JSON handling
+# in shell here and only one place that knows the API shape.
+
+case "$1" in
+	list)
+		exec /usr/sbin/xwrt rpc-list
+	;;
+	call)
+		exec /usr/sbin/xwrt rpc "$2"
+	;;
+esac
+
+exit 1

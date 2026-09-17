@@ -1,0 +1,9 @@
+# Build output. Both are produced by build.sh / release.sh and neither belongs
+# in the repository: they are the one thing that must always be rebuilt from
+# the source next to them, rather than carried along and trusted.
+/dist/
+/release/
+
+# Local scratch.
+*.tar.gz
+/node_modules/

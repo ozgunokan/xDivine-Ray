@@ -1,0 +1,60 @@
+# Everything that can be checked without a router.
+#
+# The suite is the point of this project as much as the code is, so it runs on
+# every push rather than on release day. The three shell suites that need a
+# throwaway filesystem get their own job: install.sh really does write to
+# /usr/sbin, /etc and /www, which is fine on a runner that is deleted
+# afterwards and would not be fine anywhere else.
+name: tests
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./...
+      # The daemon is built and run against a release page served here, so the
+      # updater is exercised rather than merely compiled.
+      - run: sh test/update.sh
+
+  interface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # mobile.js measures the pages in a real browser and skips without one,
+      # which would mean a green tick for a check that never ran.
+      - run: npm install -g playwright && npx playwright install --with-deps chromium
+      - run: node luci-app-xwrt/test/render.js
+      - run: node luci-app-xwrt/test/settings.js
+      - run: node luci-app-xwrt/test/i18n.js
+      - run: node luci-app-xwrt/test/notice.js
+      - run: node luci-app-xwrt/test/poll.js
+      - run: node luci-app-xwrt/test/mobile.js
+
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The package and the bundle must install the same thing, and the
+      # teardown must end what is ours and nothing else.
+      - run: sh test/package.sh
+      - run: sh test/teardown.sh
+      # And the real install/upgrade/uninstall/rollback cycle, which writes to
+      # absolute paths — hence a whole runner to itself.
+      - run: sudo sh test/install.sh

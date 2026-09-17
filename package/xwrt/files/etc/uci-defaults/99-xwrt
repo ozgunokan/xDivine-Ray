@@ -1,0 +1,98 @@
+#!/bin/sh
+# Creates the firewall zone the TUN device needs, and makes sure the running
+# firewall actually has it.
+#
+# fw4 and fw3 drop forwarded packets whose outbound device belongs to no zone,
+# and they do it silently: the tunnel comes up, every client loses the internet,
+# and nothing in any log says why. So this script does not stop at writing the
+# configuration — it reloads the firewall and then checks the kernel, because a
+# zone that is configured but never loaded looks exactly like a zone that works.
+
+TUN_DEV=$(uci -q get xwrt.main.tun_name)
+[ -n "$TUN_DEV" ] || TUN_DEV=xwrt0
+
+if ! uci -q get firewall.xwrt >/dev/null; then
+	uci -q batch <<-EOF
+		set firewall.xwrt=zone
+		set firewall.xwrt.name='xwrt'
+		set firewall.xwrt.input='REJECT'
+		set firewall.xwrt.output='ACCEPT'
+		set firewall.xwrt.forward='REJECT'
+		set firewall.xwrt.masq='1'
+		set firewall.xwrt.mtu_fix='1'
+		add_list firewall.xwrt.device="$TUN_DEV"
+	EOF
+fi
+
+# Which zone the LAN is in is not a given: it is usually called "lan", but a
+# custom build can call it anything, and a forwarding rule naming a zone that
+# does not exist is accepted by uci and ignored by the firewall.
+lan_zone=""
+i=0
+while [ $i -lt 32 ]; do
+	name=$(uci -q get "firewall.@zone[$i].name") || break
+	[ -n "$name" ] || break
+	case " $(uci -q get "firewall.@zone[$i].network") " in
+		*" lan "*) lan_zone="$name"; break ;;
+	esac
+	[ "$name" = "lan" ] && lan_zone="$name"
+	i=$((i + 1))
+done
+[ -n "$lan_zone" ] || lan_zone=lan
+
+# Let LAN clients reach the internet through the tunnel.
+have_fwd=0
+i=0
+while [ $i -lt 64 ]; do
+	dest=$(uci -q get "firewall.@forwarding[$i].dest") || break
+	[ -n "$dest" ] || break
+	if [ "$dest" = "xwrt" ]; then
+		have_fwd=1
+		break
+	fi
+	i=$((i + 1))
+done
+
+if [ "$have_fwd" = 0 ]; then
+	uci -q batch <<-EOF
+		set firewall.xwrt_fwd=forwarding
+		set firewall.xwrt_fwd.src='$lan_zone'
+		set firewall.xwrt_fwd.dest='xwrt'
+	EOF
+fi
+
+uci -q commit firewall
+
+# Reload only if the firewall is already running; at first boot it is not.
+if [ -x /etc/init.d/firewall ] && /etc/init.d/firewall enabled; then
+	/etc/init.d/firewall reload >/dev/null 2>&1
+fi
+
+# Verify against the kernel rather than against what we just wrote.
+if command -v nft >/dev/null 2>&1 && nft list ruleset 2>/dev/null | grep -q "\"$TUN_DEV\""; then
+	exit 0
+fi
+if command -v iptables-save >/dev/null 2>&1 && iptables-save 2>/dev/null | grep -q -- "-o $TUN_DEV"; then
+	exit 0
+fi
+
+# At first boot there is no running firewall to check, which is not a problem.
+if [ -x /etc/init.d/firewall ] && /etc/init.d/firewall enabled; then
+	# One broken file in /etc/nftables.d makes fw4 reject the whole ruleset, and
+	# then every reload on the device silently does nothing — including the one
+	# above. That is the cause worth printing, not ours.
+	if command -v fw4 >/dev/null 2>&1 && ! fw4 check >/dev/null 2>&1; then
+		echo "xwrt: the firewall cannot build its ruleset, so no zone can be"
+		echo "      installed and every firewall reload silently does nothing."
+		echo "      This is not an xwrt problem and nothing here can work around"
+		echo "      it. fw4 reports:"
+		fw4 check 2>&1 | sed 's/^/        /' | head -20
+	else
+		echo "xwrt: warning: the firewall has no rule for $TUN_DEV after a reload."
+		echo "      TUN and mixed modes will pass no traffic until it does."
+		echo "      Check: uci show firewall | grep xwrt"
+		echo "      Then:  /etc/init.d/firewall restart"
+	fi
+fi
+
+exit 0
