@@ -548,9 +548,17 @@ EOF
 done
 
 # The source, without build output or module cache.
+#
+# .github is in this list for a reason that cost a day. The workflows are part
+# of the source — a change to how a release is built is a change to the project
+# — but they used to be left out, so unpacking this archive over a checkout
+# updated everything except the thing that would have to run to prove it. A CI
+# fix shipped in one of these archives, went in, and the workflow that was
+# supposed to pick it up was the old one. The failure looked identical to the
+# bug that had just been fixed.
 tar czf "$OUT/xwrt-src.tar.gz" \
 	--exclude=dist --exclude=release --exclude=.git \
-	cmd internal package luci-app-xwrt test go.mod VERSION LICENSE \
+	cmd internal package luci-app-xwrt test .github go.mod VERSION LICENSE \
 	build.sh release.sh README.md
 echo "  $OUT/xwrt-src.tar.gz  $(du -h "$OUT/xwrt-src.tar.gz" | cut -f1)"
 

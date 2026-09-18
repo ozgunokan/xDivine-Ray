@@ -100,6 +100,28 @@ and restart rpcd and uhttpd.
 
 ### Proper packages
 
+Every release carries `.apk` files for OpenWrt 25.12 and `.ipk` files for
+24.10, built with the official SDK. Pick the one whose architecture your device
+reports — `apk --print-arch`, or `opkg print-architecture` on 24.10 — and note
+that it has to match exactly: an `aarch64_cortex-a53` package is refused on an
+`aarch64_cortex-a72` device even though the code inside is identical.
+
+They are not signed, which is what `--allow-untrusted` is about:
+
+```sh
+# OpenWrt 25.12
+apk add --allow-untrusted ./openwrt-25.12.0-xwrt_*.apk \
+                          ./openwrt-25.12.0-luci-app-xwrt_*.apk
+# OpenWrt 24.10
+opkg install ./openwrt-24.10.0-xwrt_*.ipk \
+             ./openwrt-24.10.0-luci-app-xwrt_*.ipk
+```
+
+If your architecture is not among them, the tarball bundle above works on any
+device of that CPU family, and building it yourself is the section below.
+
+### Building it yourself
+
 Symlink both directories into an OpenWrt SDK and build them:
 
 ```sh
@@ -108,6 +130,20 @@ ln -s $PWD/luci-app-xwrt     <sdk>/package/luci-app-xwrt
 cd <sdk> && make menuconfig      # Network -> xwrt, LuCI -> luci-app-xwrt
 make package/xwrt/compile V=s
 ```
+
+Or, to build it into a firmware image with everything it needs:
+
+```sh
+echo "src-link xwrt $PWD" >> <buildroot>/feeds.conf.default
+cd <buildroot>
+./scripts/feeds update xwrt && ./scripts/feeds install -a -p xwrt
+make menuconfig && make -j$(nproc)
+```
+
+One thing to know if you do that: xwrt's own updater replaces
+`/usr/sbin/xwrt` directly, and on a device where apk or opkg installed it, that
+leaves the package database recording the old version — a later sysupgrade puts
+it back. The About page detects this and says so before you press the button.
 
 ## Using it
 

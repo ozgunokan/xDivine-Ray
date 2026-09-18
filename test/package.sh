@@ -112,6 +112,126 @@ for dep in xray-core ip-full kmod-tun hev-socks5-tunnel kmod-nft-tproxy; do
 done
 [ "$fail" = 0 ] && ok "the core, ip-full, both tunnel pieces and tproxy are dependencies"
 
+# --- the package finds its own sources ------------------------------------
+#
+# The package does not download a tarball; it copies the Go sources from the
+# tree it lives in, found by relative path. That path has to survive being
+# reached through a feed, which is how every real build reaches it: OpenWrt
+# symlinks package/feeds/<feed>/xwrt at the feed, and the feed at the source
+# tree. Make reports the physical path, so ../.. lands back in the source —
+# but that is a property of make and of nothing else, and this is the one
+# assumption in the build that cannot be checked by reading the Makefile.
+#
+# So it is checked by running it, in the three layouts that exist: the source
+# tree itself, a doubly-symlinked feed, and a buildroot that copied the package
+# directory instead (where the answer must be "no idea", so Build/Prepare can
+# say so rather than building nothing).
+if command -v make >/dev/null 2>&1; then
+	probe=$(mktemp)
+	sed -n '/^XWRT_SRC ?=/,/^$/p' "$MK" > "$probe"
+	printf 'all: ; @echo "$(XWRT_SRC)"\n' >> "$probe"
+	tmp=$(mktemp -d)
+
+	direct=$(cd package/xwrt && make -s -f "$probe" 2>/dev/null)
+	[ "$direct" = "$ROOT" ] ||
+		bad "from its own directory the package resolves the sources to" \
+			"\"$direct\", not $ROOT"
+
+	# The feed layout, both links and all.
+	mkdir -p "$tmp/package/feeds/xwrt"
+	ln -s "$ROOT" "$tmp/feed"
+	ln -s "$tmp/feed/package/xwrt" "$tmp/package/feeds/xwrt/xwrt"
+	feed=$(cd "$tmp/package/feeds/xwrt/xwrt" && make -s -f "$probe" 2>/dev/null)
+	[ "$feed" = "$ROOT" ] ||
+		bad "through a feed symlink the package resolves the sources to" \
+			"\"$feed\", not $ROOT; an SDK or buildroot build would copy" \
+			"nothing and fail later on a missing Go package"
+
+	# And a copy, with no sources anywhere near it.
+	mkdir -p "$tmp/copy"
+	cp "$MK" "$tmp/copy/Makefile"
+	copied=$(cd "$tmp/copy" && make -s -f "$probe" 2>/dev/null)
+	[ -z "$copied" ] ||
+		bad "a package directory copied away from its source tree resolved" \
+			"the sources to \"$copied\", which is not where they are"
+
+	rm -rf "$tmp" "$probe"
+	[ "$fail" = 0 ] && ok "the package finds its sources from its own directory and through a feed"
+else
+	echo "note make is not installed here, so the source lookup was not run"
+fi
+
+# --- the SDK workflow builds everything there is to build -----------------
+#
+# .apk and .ipk are produced by a workflow that names the packages explicitly,
+# because the SDK will happily build a feed's worth of nothing and exit zero.
+# A package added here and not there is a release where half of xwrt has a
+# package and the other half does not — and the half without is the interface,
+# so the device installs cleanly and has no pages.
+WF=.github/workflows/packages.yml
+if [ ! -f "$WF" ]; then
+	bad "there is no $WF, so no release carries real packages"
+else
+	pkgnames=$(grep -h '^PKG_NAME:=' "$MK" "$LUCI_MK" | sed 's/^PKG_NAME:=//')
+	listed=$(sed -n 's/^ *PACKAGES: *//p' "$WF")
+	for p in $pkgnames; do
+		case " $listed " in
+			*" $p "*) ;;
+			*) bad "$p is not in the SDK workflow's PACKAGES, so no .apk or" \
+				".ipk of it is ever built" ;;
+		esac
+	done
+	# And the other direction: a name left behind after a rename makes the
+	# whole SDK job fail with "package not found", at release time.
+	for p in $listed; do
+		echo "$pkgnames" | grep -qx "$p" ||
+			bad "the SDK workflow builds \"$p\", which is not a package in" \
+				"this tree any more"
+	done
+	[ "$fail" = 0 ] && ok "the SDK workflow builds every package in the tree ($listed)"
+fi
+
+# The source archive has to carry the workflows, because it is how source
+# reaches the repository. Without them, an archive updates every file except
+# the ones that decide whether the update is any good — and a CI fix shipped
+# that way is tested by the CI it was supposed to replace.
+src_line=$(sed -n '/^tar czf "\$OUT\/xwrt-src.tar.gz"/,/^$/p' release.sh)
+echo "$src_line" | grep -q '\.github' ||
+	bad "release.sh leaves .github out of the source archive; a workflow" \
+		"change shipped in it would never reach the repository"
+for d in cmd internal package luci-app-xwrt test; do
+	echo "$src_line" | grep -q "$d" ||
+		bad "release.sh leaves $d out of the source archive"
+done
+[ "$fail" = 0 ] && ok "the source archive carries the workflows and every source directory"
+
+# And the workflows have to parse.
+#
+# A broken workflow file does not fail loudly; GitHub simply does not run it,
+# and the run that was supposed to prove a release is missing rather than red.
+# One heredoc inside a YAML block scalar did that here: the terminator has to
+# be at column zero to end the heredoc, and column zero ends the block scalar
+# instead, so the file became unparseable and every workflow in it stopped.
+if python3 -c 'import yaml' 2>/dev/null; then
+	for wf in .github/workflows/*.yml; do
+		[ -f "$wf" ] || continue
+		err=$(python3 -c '
+import sys, yaml
+try:
+    d = yaml.safe_load(open(sys.argv[1]))
+except Exception as e:
+    print(str(e).splitlines()[0]); sys.exit(0)
+if not isinstance(d, dict) or not d.get("jobs"):
+    print("no jobs in it")
+' "$wf" 2>&1)
+		[ -z "$err" ] || bad "$wf does not parse: $err"
+	done
+	[ "$fail" = 0 ] && ok "every workflow parses and has jobs in it"
+else
+	echo "note python3 with PyYAML is not installed here, so the workflow" \
+		"files were not parsed"
+fi
+
 # --- one repository, named once ------------------------------------------
 #
 # The update source appears in three places: the daemon's default, the hint

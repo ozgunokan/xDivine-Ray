@@ -57,6 +57,21 @@ type UpdateInfo struct {
 	// so rather than offering the button twice.
 	Installing bool   `json:"installing"`
 	LogPath    string `json:"log_path,omitempty"`
+	// How xwrt got onto this device: "apk", "opkg", or empty for a bundle.
+	//
+	// It is here because it changes what pressing the install button means. On
+	// a bundle install, replacing /usr/sbin/xwrt is the whole operation. On a
+	// package install it is a file apk believes it owns at a version it
+	// records, and the next sysupgrade puts the old one back without saying so.
+	// The button still works — someone building their own images can decide
+	// that for themselves — but they are told before they press it, not weeks
+	// later when the update appears to have undone itself.
+	Origin        string `json:"origin,omitempty"`
+	OriginVersion string `json:"origin_version,omitempty"`
+	Managed       bool   `json:"managed"`
+	// Drifted means it has already happened: the binary running is not the one
+	// the package manager has on record.
+	Drifted bool `json:"drifted"`
 }
 
 // updateInterval is how often the daemon looks, when looking is enabled. Once
@@ -73,19 +88,67 @@ type updater struct {
 	mu         sync.Mutex
 	info       UpdateInfo
 	installing bool
+	// The package manager is asked once rather than on every poll: the About
+	// page polls this several times a minute, and each answer costs a
+	// subprocess. It is refreshed on an explicit check, which is the only
+	// moment it can plausibly have changed.
+	origin      update.Origin
+	originKnown bool
+}
+
+// origin answers how xwrt was installed, asking the device only the first time.
+//
+// The lock is not held across the question. Asking runs apk or opkg, which on a
+// busy router is not instant, and every status poll would queue behind it.
+func (e *Engine) origin() update.Origin {
+	e.updater.mu.Lock()
+	o, known := e.updater.origin, e.updater.originKnown
+	e.updater.mu.Unlock()
+	if known {
+		return o
+	}
+	o = update.Installed()
+	e.updater.mu.Lock()
+	e.updater.origin, e.updater.originKnown = o, true
+	e.updater.mu.Unlock()
+	return o
+}
+
+// refreshOrigin asks again. Called from an explicit check, because that is when
+// someone is looking at the answer — and because an install done through the
+// package manager since boot would otherwise never be noticed.
+func (e *Engine) refreshOrigin() {
+	o := update.Installed()
+	e.updater.mu.Lock()
+	e.updater.origin, e.updater.originKnown = o, true
+	e.updater.mu.Unlock()
+}
+
+// withOrigin fills in the install-source fields. Every path that hands an
+// UpdateInfo to a caller goes through it, so the interface cannot receive one
+// that has an answer about releases but no answer about this device.
+func (e *Engine) withOrigin(info UpdateInfo) UpdateInfo {
+	o := e.origin()
+	info.Origin = o.Manager
+	info.OriginVersion = o.Version
+	info.Managed = o.Managed()
+	info.Drifted = o.DriftedFrom(Version)
+	return info
 }
 
 // Update returns the last thing the daemon learned about releases.
 func (e *Engine) Update() UpdateInfo {
 	e.updater.mu.Lock()
-	defer e.updater.mu.Unlock()
 	info := e.updater.info
 	info.Current = Version
 	info.Installing = e.updater.installing
 	if info.Installing {
 		info.LogPath = updateLog
 	}
-	return info
+	e.updater.mu.Unlock()
+	// Outside the lock: asking the package manager runs a subprocess, and
+	// holding the updater's lock across it would stall every other caller.
+	return e.withOrigin(info)
 }
 
 // CheckUpdate asks now, rather than waiting for the timer.
@@ -129,6 +192,7 @@ func (e *Engine) CheckUpdate(ctx context.Context) UpdateInfo {
 	e.updater.mu.Lock()
 	e.updater.info = info
 	e.updater.mu.Unlock()
+	e.refreshOrigin()
 
 	if info.Available {
 		e.Log.Infof("a newer version is available: %s (running %s)",
@@ -213,6 +277,17 @@ func (e *Engine) InstallUpdate() error {
 	if !rel.Installable() {
 		return done(fmt.Errorf("release %s carries no verifiable bundle for %s",
 			rel.Version, update.Arch()))
+	}
+
+	// Said once, here, where it ends up in the system log next to the install
+	// itself. The interface says it too, before the button is pressed; this is
+	// for whoever reads the log afterwards wondering why a version they
+	// installed is not the one running any more.
+	if o := e.origin(); o.Managed() {
+		e.Log.Warnf("this xwrt was installed by %s, which has %s on record. "+
+			"Replacing the binary here leaves %s's database wrong, and a "+
+			"sysupgrade or package upgrade will put %s back.",
+			o.Manager, o.Version, o.Manager, o.Version)
 	}
 
 	// Somewhere with room. /tmp is RAM on most routers and a bundle is a few

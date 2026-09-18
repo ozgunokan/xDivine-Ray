@@ -803,6 +803,10 @@ var TR = {
 		"Sizde %s çalışıyor.",
 	"%s is the newest version, and it is the one running.":
 		"%s en güncel sürüm, ve çalışan da o.",
+	"The version running is %s, but %s still has %s on record. A sysupgrade or a package upgrade will put %s back.":
+		"Çalışan sürüm %s, ama %s hâlâ %s kayıtlı. Bir sistem yükseltmesi ya da paket güncellemesi %s sürümünü geri getirir.",
+	"This xwrt was installed by %s. Updating from here replaces the binary directly, so %s would go on recording %s and a later sysupgrade would undo it. To keep them in step, update through your firmware image instead.":
+		"Bu xwrt %s ile kuruldu. Buradan güncellemek dosyayı doğrudan değiştirir; %s ise %s sürümünü kayıtlı tutmaya devam eder ve ileride bir sistem yükseltmesi bunu geri alır. İkisinin uyumlu kalması için güncellemeyi firmware imajı üzerinden yapın.",
 	"The release page could not be reached.":
 		"Sürüm sayfasına ulaşılamadı.",
 	"No check has been made yet.":

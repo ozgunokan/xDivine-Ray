@@ -31,7 +31,20 @@ PKG_NAME:=xwrt
 # hand it drifted immediately: the package said 0.1.0 while the daemon it
 # contained reported 0.23.0, and the only place that difference showed was a
 # line of the install report nobody reads twice.
-XWRT_SRC:=$(realpath $(CURDIR)/../..)
+#
+# Where those sources are is worked out rather than assumed. Normally they are
+# two directories up, because this Makefile lives at <source>/package/xwrt/ —
+# and that holds through a src-link feed too, since make reports CURDIR as the
+# physical path, so package/feeds/xwrt/xwrt resolves back into the source tree.
+#
+# The other two forms are for buildroots that do not link. A "src" directory
+# beside this Makefile is used if someone puts one there, and XWRT_SRC= on the
+# command line overrides everything. Without them, a buildroot that copies
+# package directories instead of symlinking them looks for go.mod in the
+# buildroot itself and fails much later with something about a missing package.
+XWRT_SRC ?= $(firstword $(realpath \
+	$(dir $(wildcard $(CURDIR)/src/go.mod)) \
+	$(dir $(wildcard $(CURDIR)/../../go.mod))))
 PKG_VERSION:=$(strip $(shell cat $(XWRT_SRC)/VERSION 2>/dev/null || echo 0.0.0))
 PKG_RELEASE:=1
 
@@ -108,10 +121,14 @@ endef
 # fails much later with something unhelpful about a missing package, so it is
 # checked first and said plainly.
 define Build/Prepare
-	@[ -f "$(XWRT_SRC)/go.mod" ] || { \
-		echo "xwrt: no go.mod at $(XWRT_SRC)."; \
+	@[ -n "$(XWRT_SRC)" ] && [ -f "$(XWRT_SRC)/go.mod" ] || { \
+		echo "xwrt: could not find the Go sources."; \
+		echo "xwrt: looked for go.mod in $(CURDIR)/src and $(CURDIR)/../.."; \
 		echo "xwrt: this Makefile expects to live at <source>/package/xwrt/Makefile,"; \
-		echo "xwrt: with the Go sources two directories above it."; \
+		echo "xwrt: with the Go sources two directories above it. If this"; \
+		echo "xwrt: buildroot copies package directories rather than linking them,"; \
+		echo "xwrt: pass XWRT_SRC=/path/to/xwrt, or symlink the sources to"; \
+		echo "xwrt: $(CURDIR)/src."; \
 		exit 1; }
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) $(XWRT_SRC)/go.mod $(PKG_BUILD_DIR)/

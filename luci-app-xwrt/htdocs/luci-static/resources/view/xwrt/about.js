@@ -75,6 +75,27 @@ function updateBox(u, view) {
 		rows.push(E('div', {}, _('No check has been made yet.')));
 	}
 
+	// Where this xwrt came from, said only when it changes what the button does.
+	//
+	// A bundle install is the normal case and needs no explanation. A package
+	// install does: the updater replaces /usr/sbin/xwrt directly, which works,
+	// but apk goes on believing it owns that file at the version it recorded —
+	// and the next sysupgrade or package upgrade puts the old binary back with
+	// no warning at all. Someone who builds their own firmware may well want to
+	// press the button anyway, so it stays; they just get to know first.
+	if (u.managed && (u.drifted || u.available)) {
+		rows.push(E('div', {
+			'class': 'xwrt-managed',
+			'style': 'margin-top:.5em;padding:.5em .7em;border-left:3px solid ' +
+				'var(--border-color-medium,#f0ad4e);opacity:.9;font-size:93%'
+		}, u.drifted
+			? _('The version running is %s, but %s still has %s on record. A sysupgrade or a package upgrade will put %s back.')
+				.format(u.current || '?', u.origin, u.origin_version || '?',
+					u.origin_version || '?')
+			: _('This xwrt was installed by %s. Updating from here replaces the binary directly, so %s would go on recording %s and a later sysupgrade would undo it. To keep them in step, update through your firmware image instead.')
+				.format(u.origin, u.origin, u.origin_version || '?')));
+	}
+
 	var why = u.error_code
 		? xwrt.failureMessage({ code: u.error_code, args: u.error_args,
 			message: u.check_error })

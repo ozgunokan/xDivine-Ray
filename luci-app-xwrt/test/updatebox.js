@@ -51,4 +51,57 @@ check('and not in English',
 check('the box does not claim no check was made',
 	text.indexOf('Henüz kontrol yapılmadı') < 0);
 
+// --- and where this xwrt came from ---------------------------------------
+//
+// The second reason this file exists. A device that got xwrt from a firmware
+// image has a package manager that believes it owns /usr/sbin/xwrt at a
+// recorded version. The updater replaces that file, which works, and then a
+// sysupgrade months later silently puts the old binary back. Whoever presses
+// the button should be told before, not find out after.
+function page(u) {
+	return (view.render([ { version: u.current || '1.0.3' }, u ]).textContent || '');
+}
+
+var managed = {
+	current: '1.0.3', latest: '1.0.4', available: true, installable: true,
+	managed: true, origin: 'apk', origin_version: '1.0.3',
+	checked_at: '2026-09-18T01:48:00Z'
+};
+var t = page(managed);
+check('a package install is told what updating from here would cost',
+	t.indexOf('apk ile kuruldu') >= 0);
+check('and the install button is still offered',
+	t.indexOf('1.0.4 sürümünü kur') >= 0);
+
+// Already drifted: the binary running is not the one apk recorded. That is a
+// live inconsistency, so it is said whether or not a newer release exists.
+var drifted = {
+	current: '1.0.4', latest: '1.0.4',
+	managed: true, drifted: true, origin: 'apk', origin_version: '1.0.3'
+};
+t = page(drifted);
+check('drift is reported even when there is nothing newer to install',
+	t.indexOf('hâlâ 1.0.3 kayıtlı') >= 0);
+check('and it names the version that would come back',
+	t.indexOf('sistem yükseltmesi') >= 0);
+
+// A bundle install is the ordinary case and gets no warning at all: a notice
+// on every device would train people to ignore the one device it applies to.
+var bundle = {
+	current: '1.0.3', latest: '1.0.4', available: true, installable: true,
+	managed: false
+};
+t = page(bundle);
+check('a bundle install is not warned about anything',
+	t.indexOf('ile kuruldu') < 0 && t.indexOf('sistem yükseltmesi') < 0);
+
+// Nor is a package install that has nothing to offer: without an update
+// button there is no decision to inform.
+var quiet = {
+	current: '1.0.3', latest: '1.0.3',
+	managed: true, origin: 'apk', origin_version: '1.0.3'
+};
+check('a package install with no update available is left alone',
+	page(quiet).indexOf('apk ile kuruldu') < 0);
+
 process.exit(fail);

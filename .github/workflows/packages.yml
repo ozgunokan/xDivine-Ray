@@ -1,0 +1,207 @@
+# Builds real OpenWrt packages — .apk for 25.12, .ipk for 24.10 — with the
+# official SDK, and attaches them to the release.
+#
+# Why this is separate from release.yml, and slow.
+#
+# The tarball bundles are architecture-independent in the way that matters: one
+# static binary per CPU family, unpacked over / by a script. A package is not.
+# opkg and apk refuse a package whose Architecture: line is not one the device
+# accepts, so `aarch64_cortex-a53` and `aarch64_cortex-a72` need separate
+# builds of identical code, and 24.10 and 25.12 need separate builds again
+# because they use different package formats entirely. There is no way around
+# that; it is what a package is.
+#
+# Each job downloads an SDK image and compiles golang/host inside it before it
+# gets to our code, which is tens of minutes. That is why this does not run on
+# every push: it runs when a version tag is pushed, and on demand from the
+# Actions tab — which is the sensible thing to do before tagging, if anything
+# under package/ has changed.
+#
+# The packages are unsigned. `apk add` wants --allow-untrusted for those, and
+# the release notes say so; signing them would mean putting a private key in
+# this repository's secrets and a public key on every device, which is a real
+# thing to do one day and not a thing to do quietly.
+name: packages
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.series }} ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      # One missing SDK image, or one architecture that will not compile, should
+      # not throw away the eleven builds that worked.
+      fail-fast: false
+      matrix:
+        include:
+          # 25.12 — apk. The architectures that cover the devices this is for.
+          # cortex-a53 is ipq807x and mediatek/filogic; cortex-a72 is the
+          # larger ipq807x and bcm2711; generic is rockchip and armsr.
+          - { series: '25.12.0', arch: aarch64_cortex-a53 }
+          - { series: '25.12.0', arch: aarch64_cortex-a72 }
+          - { series: '25.12.0', arch: aarch64_generic }
+          - { series: '25.12.0', arch: x86_64 }
+          - { series: '25.12.0', arch: arm_cortex-a7_neon-vfpv4 }
+          - { series: '25.12.0', arch: mipsel_24kc }
+          # 24.10 — ipk, for devices not yet moved over. Fewer, because the
+          # devices that meet this project's 128 MB floor and are still on
+          # 24.10 are mostly these three.
+          - { series: '24.10.0', arch: aarch64_cortex-a53 }
+          - { series: '24.10.0', arch: x86_64 }
+          - { series: '24.10.0', arch: mipsel_24kc }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Before twenty minutes of SDK, five seconds of asking whether the SDK
+      # exists.
+      #
+      # The matrix names container tags by convention — architecture, dash,
+      # release — and a release that is named something else, or has no image
+      # for an architecture, fails inside the action with "manifest unknown",
+      # which reads like a broken workflow rather than a wrong string in a
+      # list. This says which string is wrong and prints the ones that would
+      # have worked.
+      - name: is there an SDK for this
+        run: |
+          tag="${{ matrix.arch }}-${{ matrix.series }}"
+          if docker manifest inspect "openwrt/sdk:$tag" >/dev/null 2>&1; then
+            echo "openwrt/sdk:$tag is there"
+            exit 0
+          fi
+          echo "There is no openwrt/sdk:$tag." >&2
+          echo "The tags that exist for ${{ matrix.arch }}:" >&2
+          curl -sf "https://hub.docker.com/v2/repositories/openwrt/sdk/tags?page_size=100&name=${{ matrix.arch }}" \
+            | tr ',' '\n' | sed -n 's/.*"name":"\([^"]*\)".*/  \1/p' | sort -u >&2 \
+            || echo "  (could not reach the tag listing)" >&2
+          echo "Pick one of those in .github/workflows/packages.yml." >&2
+          exit 1
+
+      # The action mounts this repository at /feed and adds it as a src-link
+      # feed, so package/xwrt/Makefile finds the Go sources two directories
+      # above itself exactly as it does in a local buildroot. That is the whole
+      # reason the Makefile reads them by relative path rather than downloading
+      # a tarball.
+      - name: build with the OpenWrt SDK
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: ${{ matrix.arch }}-${{ matrix.series }}
+          FEEDNAME: xwrt
+          PACKAGES: xwrt luci-app-xwrt
+          # Skipped because it cannot be run outside CI here, so a failure
+          # would be discovered at release time rather than when the script was
+          # written. Worth turning on once a build has passed and someone has
+          # run shfmt over files/etc/init.d/xwrt locally.
+          NO_SHFMT_CHECK: 1
+          V: s
+
+      # Named for the release series they were built against. Without this the
+      # architecture-independent LuCI package has the same filename in all nine
+      # jobs, and the release ends up with whichever one uploaded last — from a
+      # series it may not belong to.
+      - name: collect
+        run: |
+          mkdir -p out
+          found=0
+          for f in $(find bin -type f \( -name '*.ipk' -o -name '*.apk' \)); do
+            cp "$f" "out/openwrt-${{ matrix.series }}-$(basename "$f")"
+            found=$((found + 1))
+          done
+          if [ "$found" = 0 ]; then
+            echo "the SDK produced no packages, which means the build" >&2
+            echo "succeeded at doing nothing. Check the log above for" >&2
+            echo "'xwrt' being skipped rather than compiled." >&2
+            exit 1
+          fi
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.series }}-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+
+  attach:
+    name: attach to the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+
+      - name: one directory, no duplicates
+        run: |
+          mkdir -p upload
+          # The LuCI package is PKGARCH:=all and comes out of every job in a
+          # series identical, so the first copy of each name wins.
+          find downloaded -type f \( -name '*.ipk' -o -name '*.apk' \) \
+            -exec cp -n {} upload/ \;
+          ls -l upload
+
+      - name: upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # release.yml is creating the release from the same tag, and it does
+          # not take twenty minutes, so it is normally already there. Normally
+          # is not always: if its own build is slow or was re-run, uploading
+          # into a release that does not exist yet fails for a reason that
+          # looks like a permissions problem and is not.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              break
+            fi
+            echo "waiting for release $GITHUB_REF_NAME to exist ($attempt/10)"
+            sleep 30
+          done
+          gh release view "$GITHUB_REF_NAME" >/dev/null || {
+            echo "release $GITHUB_REF_NAME was never created; the packages are" >&2
+            echo "still downloadable from this run's artifacts." >&2
+            exit 1; }
+          gh release upload "$GITHUB_REF_NAME" upload/* --clobber
+
+      - name: say how to install them
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        # Never fatal. The packages are already attached at this point, and
+        # failing a release over a paragraph would be absurd.
+        continue-on-error: true
+        # No heredoc. A heredoc body has to start at column zero to end, and
+        # column zero inside a YAML block scalar ends the block instead — which
+        # made this whole file unparseable, so no workflow ran at all.
+        run: |
+          {
+            echo '### Packages'
+            echo
+            echo "Pick the file matching your device's architecture exactly:"
+            echo '`apk --print-arch` on 25.12, `opkg print-architecture` on'
+            echo '24.10. They are unsigned, hence `--allow-untrusted`:'
+            echo
+            echo '    apk add --allow-untrusted ./openwrt-25.12.0-xwrt_*.apk ./openwrt-25.12.0-luci-app-xwrt_*.apk'
+            echo '    opkg install ./openwrt-24.10.0-xwrt_*.ipk ./openwrt-24.10.0-luci-app-xwrt_*.ipk'
+            echo
+            echo 'If your architecture is not listed, use the'
+            echo '`xwrt-<arch>.tar.gz` bundle: it works on any device of that'
+            echo 'CPU family, and its installer checks dependencies, keeps your'
+            echo 'configuration and rolls back a version that will not start.'
+            echo
+            echo '---'
+            echo
+          } > note.md
+          body=$(gh release view "$GITHUB_REF_NAME" --json body -q .body)
+          case "$body" in
+            *"### Packages"*) echo "already described"; exit 0 ;;
+          esac
+          { cat note.md; printf '%s\n' "$body"; } > body.md
+          gh release edit "$GITHUB_REF_NAME" --notes-file body.md
