@@ -26,19 +26,65 @@ func planFor(mode model.Mode) Plan {
 	}
 }
 
-// checkRuleset validates syntax with nft's own parser. It is skipped when nft
-// is not installed, so the suite still runs on a bare build host.
-func checkRuleset(t *testing.T, ruleset string) {
-	t.Helper()
+// nftCheck runs a ruleset past nft's own parser, and says whether nft was in a
+// position to judge it at all.
+//
+// `nft -c` reads like a syntax check and is not only that: before it looks at
+// the file it opens a netlink socket and builds a cache of the kernel's
+// current ruleset, and that needs privileges. On an unprivileged machine it
+// fails with "cache initialization failed: Operation not permitted" having
+// never read a line of what it was given.
+//
+// That is the difference between "your ruleset is wrong" and "nft could not
+// look", and conflating them cost a green suite here and a red one on a build
+// server, with an error message quoting a ruleset that was perfectly valid.
+func nftCheck(ruleset string) (out string, checked bool) {
 	if _, err := exec.LookPath("nft"); err != nil {
-		t.Skip("nft not installed; skipping syntax validation")
+		return "", false
 	}
 	cmd := exec.Command("nft", "-c", "-f", "-")
 	cmd.Stdin = strings.NewReader(ruleset)
-	out, err := cmd.CombinedOutput()
+	b, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(b))
+	if err != nil && isNftUnprivileged(text) {
+		return text, false
+	}
 	if err != nil {
+		return text, true
+	}
+	return text, true
+}
+
+// isNftUnprivileged distinguishes nft failing to reach the kernel from nft
+// disagreeing with the ruleset.
+func isNftUnprivileged(out string) bool {
+	for _, s := range []string{
+		"cache initialization failed",
+		"Operation not permitted",
+		"Could not process rule: Operation not permitted",
+	} {
+		if strings.Contains(out, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkRuleset validates syntax with nft's own parser, and skips — loudly
+// enough to be noticed in a log — when this machine cannot run that check.
+func checkRuleset(t *testing.T, ruleset string) {
+	t.Helper()
+	if _, err := exec.LookPath("nft"); err != nil {
+		t.Skip("nft not installed; the generated ruleset was not syntax-checked")
+	}
+	out, checked := nftCheck(ruleset)
+	if !checked {
+		t.Skipf("nft cannot reach the kernel here, so it never read the "+
+			"ruleset (%s). Run this as root to check the syntax.", out)
+	}
+	if out != "" {
 		t.Fatalf("nft rejected the generated ruleset: %s\n--- ruleset ---\n%s",
-			strings.TrimSpace(string(out)), ruleset)
+			out, ruleset)
 	}
 }
 

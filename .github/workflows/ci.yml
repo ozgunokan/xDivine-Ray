@@ -23,6 +23,29 @@ jobs:
       - run: go vet ./...
       - run: go build ./...
       - run: go test ./...
+
+      # And then the one check that the run above cannot make.
+      #
+      # `nft -c` reads like a syntax check but opens a netlink socket and
+      # builds a cache from the running kernel before it looks at the file, so
+      # as the runner user it fails having never read the ruleset. The test
+      # skips in that case rather than reporting a valid ruleset as broken —
+      # which means that without this step, the check that a generated ruleset
+      # is valid would quietly never run anywhere. It is the check that keeps a
+      # syntax error off somebody's router, so it is required to run, not
+      # merely allowed to.
+      - name: the generated nftables ruleset, checked by nft itself
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq nftables
+          out=$(sudo -E env "PATH=$PATH" go test ./internal/fw/ -run Ruleset -v 2>&1) || {
+            echo "$out"; exit 1; }
+          echo "$out"
+          case "$out" in
+            *"--- SKIP"*)
+              echo "the nft check skipped; it is the one that must not" >&2
+              exit 1 ;;
+          esac
+
       # The daemon is built and run against a release page served here, so the
       # updater is exercised rather than merely compiled.
       - run: sh test/update.sh
