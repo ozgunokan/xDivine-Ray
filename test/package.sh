@@ -74,6 +74,29 @@ else
 	ok "the package installs nothing that is not there"
 fi
 
+# --- the whole source tree reaches the buildroot --------------------------
+#
+# The package does not download its sources; Build/Prepare copies them in, one
+# directory at a time, by name. That list is the only thing standing between a
+# new top-level package directory and a firmware build that fails hundreds of
+# lines later with "no required module provides package xwrt/internal/<new>".
+# Nobody adding a directory thinks to open a Makefile, so the check is here
+# instead: every directory that holds Go code has to be in the copy list.
+prepare=$(sed -n '/define Build\/Prepare/,/^endef/p' "$MK")
+for d in $(find . -maxdepth 1 -type d ! -name . ! -name .git | sed 's|^\./||' | sort); do
+	case "$d" in
+		dist|release|test|package|luci-app-xwrt) continue ;;
+	esac
+	# Only directories that actually contain Go sources matter to the build.
+	[ -n "$(find "$d" -name '*.go' -print -quit 2>/dev/null)" ] || continue
+	echo "$prepare" | grep -q "/$d " ||
+		bad "$d holds Go code but Build/Prepare never copies it into the" \
+			"buildroot; an in-tree build would fail on a missing package"
+done
+echo "$prepare" | grep -q '/go.mod' ||
+	bad "Build/Prepare does not copy go.mod; the build would not be a module"
+[ "$fail" = 0 ] && ok "every Go directory in the tree is copied into the buildroot"
+
 # --- the runtime requirements --------------------------------------------
 #
 # The point of building this into an image is that the image has everything.

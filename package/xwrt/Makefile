@@ -117,6 +117,9 @@ define Build/Prepare
 	$(CP) $(XWRT_SRC)/go.mod $(PKG_BUILD_DIR)/
 	$(CP) $(XWRT_SRC)/cmd $(PKG_BUILD_DIR)/
 	$(CP) $(XWRT_SRC)/internal $(PKG_BUILD_DIR)/
+	# PKG_LICENSE_FILES is read out of the build directory, not the source
+	# tree, so without this the licence check has nothing to look at.
+	$(CP) $(XWRT_SRC)/LICENSE $(PKG_BUILD_DIR)/
 endef
 
 define Package/xwrt/install
