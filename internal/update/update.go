@@ -32,7 +32,26 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"xwrt/internal/fault"
 )
+
+// Every failure here is named, because every one of them ends up on a page in
+// somebody's language. The English text next to the name is what the log and
+// the command line show; the interface renders its own sentence from the name
+// and the values. This is the same arrangement as the rest of the daemon's
+// failures, and leaving it out was a mistake that put an English paragraph in
+// the middle of a Turkish page.
+
+// Codes is every name this package raises, so a test can check that each one
+// has a sentence in both catalogs — and that the catalogs carry nothing this
+// package stopped raising.
+var Codes = []string{
+	"update.bad_source", "update.unreachable", "update.no_releases",
+	"update.rate_limited", "update.http", "update.unreadable", "update.draft",
+	"update.no_bundle", "update.no_checksums", "update.not_listed",
+	"update.checksum_mismatch", "update.download_failed",
+}
 
 // Arch is the release asset name for the architecture this binary was built
 // for. The names are release.sh's, not Go's, because they are what appears on
@@ -103,7 +122,8 @@ var apiBase = func() string {
 func Latest(ctx context.Context, repo string) (*Release, error) {
 	repo = strings.Trim(strings.TrimSpace(repo), "/")
 	if repo == "" || strings.Count(repo, "/") != 1 {
-		return nil, fmt.Errorf("update source %q is not an owner/name repository", repo)
+		return nil, fault.Tagf("update.bad_source", []any{repo},
+			"update source %q is not an owner/name repository", repo)
 	}
 
 	url := apiBase + "/repos/" + repo + "/releases/latest"
@@ -118,7 +138,8 @@ func Latest(ctx context.Context, repo string) (*Release, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("could not reach the release page: %w", err)
+		return nil, fault.Tagf("update.unreachable", []any{err},
+			"could not reach the release page: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -128,14 +149,17 @@ func Latest(ctx context.Context, repo string) (*Release, error) {
 		// Either the repository has no releases yet, or it is not the right
 		// repository — and from here those look identical, so the answer names
 		// the setting rather than guessing which it was.
-		return nil, fmt.Errorf("%s has no releases, or is not the right "+
-			"repository; check the update source in Settings", repo)
+		return nil, fault.Tagf("update.no_releases", []any{repo},
+			"%s has no releases, or is not the right repository; check the "+
+				"update source in Settings", repo)
 	case http.StatusForbidden:
 		// GitHub rate-limits by address, and a router behind a busy exit node
 		// shares that address with everyone else behind it.
-		return nil, fmt.Errorf("the release page refused the request (rate limited); try again later")
+		return nil, fault.Tagf("update.rate_limited", nil,
+			"the release page refused the request (rate limited); try again later")
 	default:
-		return nil, fmt.Errorf("the release page answered %s", resp.Status)
+		return nil, fault.Tagf("update.http", []any{resp.Status},
+			"the release page answered %s", resp.Status)
 	}
 
 	var raw struct {
@@ -155,10 +179,11 @@ func Latest(ctx context.Context, repo string) (*Release, error) {
 	// Bounded: this is parsed on a router with 128 MB of RAM, and the body is
 	// whatever the other end sends.
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("the release page sent something unreadable: %w", err)
+		return nil, fault.Tagf("update.unreadable", []any{err},
+			"the release page sent something unreadable: %w", err)
 	}
 	if raw.Draft {
-		return nil, fmt.Errorf("the newest release is still a draft")
+		return nil, fault.Tagf("update.draft", nil, "the newest release is still a draft")
 	}
 
 	rel := &Release{
@@ -239,19 +264,23 @@ func parse(v string) ([3]int, bool) {
 func Fetch(ctx context.Context, rel *Release, dir string) (string, error) {
 	if !rel.Installable() {
 		if rel.Asset == "" {
-			return "", fmt.Errorf("this release has no bundle for %s", Arch())
+			return "", fault.Tagf("update.no_bundle", []any{Arch()},
+				"this release has no bundle for %s", Arch())
 		}
-		return "", fmt.Errorf("this release has no %s file, so the download "+
-			"cannot be verified and will not be installed", checksumName)
+		return "", fault.Tagf("update.no_checksums", []any{checksumName},
+			"this release has no %s file, so the download cannot be verified "+
+				"and will not be installed", checksumName)
 	}
 
 	sums, err := fetchText(ctx, rel.Checksums, 1<<20)
 	if err != nil {
-		return "", fmt.Errorf("could not fetch %s: %w", checksumName, err)
+		return "", fault.Tagf("update.download_failed", []any{checksumName, err},
+			"could not fetch %s: %w", checksumName, err)
 	}
 	want := sumFor(sums, rel.AssetName)
 	if want == "" {
-		return "", fmt.Errorf("%s does not mention %s", checksumName, rel.AssetName)
+		return "", fault.Tagf("update.not_listed", []any{rel.AssetName, checksumName},
+			"%s does not mention %s", checksumName, rel.AssetName)
 	}
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -265,8 +294,9 @@ func Fetch(ctx context.Context, rel *Release, dir string) (string, error) {
 	}
 	if !strings.EqualFold(got, want) {
 		os.Remove(path)
-		return "", fmt.Errorf("the download does not match the checksum in %s "+
-			"(expected %s, got %s); it was deleted rather than installed",
+		return "", fault.Tagf("update.checksum_mismatch", []any{rel.AssetName},
+			"the download does not match the checksum in %s (expected %s, "+
+				"got %s); it was deleted rather than installed",
 			checksumName, want[:12], got[:12])
 	}
 	return path, nil

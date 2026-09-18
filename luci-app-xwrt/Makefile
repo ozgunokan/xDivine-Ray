@@ -3,7 +3,7 @@
 #
 include $(TOPDIR)/rules.mk
 
-LUCI_TITLE:=xDivine-Ray (LuCI interface for xwrt)
+LUCI_TITLE:=xDivine-Ray (LuCI interface)
 LUCI_DESCRIPTION:=xDivine-Ray: manage servers, capture mode and routing for the xwrt daemon.
 # +xwrt pulls in the daemon and, through it, everything the daemon needs. The
 # pages are useless without it: every one of them is a view onto that daemon's

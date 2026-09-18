@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"xwrt/internal/fault"
 	"xwrt/internal/model"
 	"xwrt/internal/update"
 )
@@ -43,7 +44,15 @@ type UpdateInfo struct {
 	AssetName   string `json:"asset_name,omitempty"`
 	Size        int64  `json:"size,omitempty"`
 	CheckedAt   string `json:"checked_at,omitempty"`
-	Error       string `json:"error,omitempty"`
+	// Deliberately not called "error". Every RPC answer goes through one
+	// unwrapper in the interface, and that unwrapper treats an "error" key as a
+	// call that failed — so a check that merely could not reach GitHub was
+	// raised as a broken request, in English, in a red box, while the page
+	// underneath still said no check had been made. It is a fact about the last
+	// check, not a failed call, and it is named like one.
+	CheckError string   `json:"check_error,omitempty"`
+	ErrorCode  string   `json:"error_code,omitempty"`
+	ErrorArgs  []string `json:"error_args,omitempty"`
 	// Installing is set while an install is running, so the interface can say
 	// so rather than offering the button twice.
 	Installing bool   `json:"installing"`
@@ -93,7 +102,10 @@ func (e *Engine) CheckUpdate(ctx context.Context) UpdateInfo {
 	info := UpdateInfo{Current: Version, CheckedAt: time.Now().Format(time.RFC3339)}
 	rel, err := update.Latest(ctx, repo)
 	if err != nil {
-		info.Error = err.Error()
+		info.CheckError = err.Error()
+		if code, args, ok := fault.CodeOf(err); ok {
+			info.ErrorCode, info.ErrorArgs = code, args
+		}
 	} else {
 		info.Latest = rel.Version
 		info.Notes = rel.Notes
@@ -106,9 +118,11 @@ func (e *Engine) CheckUpdate(ctx context.Context) UpdateInfo {
 			// Worth saying rather than showing a button that cannot work. A
 			// release with no bundle for this architecture, or with no
 			// checksum file, is not installable from here by design.
-			info.Error = fmt.Sprintf(
+			info.CheckError = fmt.Sprintf(
 				"%s is out, but it has no verifiable bundle for %s, so it "+
 					"cannot be installed from here", rel.Version, update.Arch())
+			info.ErrorCode = "update.not_installable"
+			info.ErrorArgs = []string{rel.Version, update.Arch()}
 		}
 	}
 
@@ -173,7 +187,10 @@ func (e *Engine) InstallUpdate() error {
 		if err != nil {
 			e.updater.mu.Lock()
 			e.updater.installing = false
-			e.updater.info.Error = err.Error()
+			e.updater.info.CheckError = err.Error()
+			if code, args, ok := fault.CodeOf(err); ok {
+				e.updater.info.ErrorCode, e.updater.info.ErrorArgs = code, args
+			}
 			e.updater.mu.Unlock()
 			e.record(fail(model.StepConfig, "update.failed", err))
 		}

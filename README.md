@@ -2,6 +2,11 @@
 
 A device-independent Xray proxy manager for OpenWrt.
 
+The package, the service, the command and `/etc/config/xwrt` are all still
+called `xwrt`: the name in the interface changed, and changing the other one
+would rename a configuration file on every device that already has one. So the
+project is xDivine-Ray and the thing on the filesystem is xwrt, deliberately.
+
 The point of this project is portability. Nothing about the router is assumed:
 the daemon asks the running system what the LAN and WAN actually are, which
 firewall stack is in use, and whether the kernel can do TPROXY, then builds its

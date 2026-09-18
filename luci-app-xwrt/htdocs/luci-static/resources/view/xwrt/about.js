@@ -69,14 +69,18 @@ function updateBox(u, view) {
 	} else if (u.latest) {
 		rows.push(E('div', {},
 			_('%s is the newest version, and it is the one running.').format(u.current || '?')));
-	} else if (u.error) {
+	} else if (u.check_error) {
 		rows.push(E('div', {}, _('The release page could not be reached.')));
 	} else {
 		rows.push(E('div', {}, _('No check has been made yet.')));
 	}
 
-	if (u.error)
-		rows.push(E('div', { 'style': 'margin-top:.4em;opacity:.8;font-size:92%' }, u.error));
+	var why = u.error_code
+		? xwrt.failureMessage({ code: u.error_code, args: u.error_args,
+			message: u.check_error })
+		: u.check_error;
+	if (why)
+		rows.push(E('div', { 'style': 'margin-top:.4em;opacity:.8;font-size:92%' }, why));
 	if (u.checked_at)
 		rows.push(E('div', { 'style': 'margin-top:.3em;opacity:.65;font-size:92%' },
 			_('Last checked: %s').format(u.checked_at.replace('T', ' ').replace('Z', ' UTC'))));
@@ -87,7 +91,7 @@ function updateBox(u, view) {
 			'click': ui.createHandlerFn(view, function() {
 				return xwrt.updateCheck().then(function(r) {
 					dom.content(document.getElementById('xwrt-update'),
-						updateBox(xwrt.checked(r), view));
+						updateBox(r, view));
 				}).catch(function(e) {
 					ui.addNotification(null, E('p', e.message), 'error');
 				});

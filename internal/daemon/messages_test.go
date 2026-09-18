@@ -139,6 +139,11 @@ var (
 	// have to be checked the same way, or a translation goes missing in the
 	// one direction nothing else looks.
 	tagCall = regexp.MustCompile(`fault\.Tagf?\((?:[^,]+,\s*)?"([a-z][a-z0-9_.]*)"`)
+	// And the one kind of name that is not raised as an error at all: the
+	// update check records why it could not offer an update, which the page
+	// then translates the same way. It is a code with a sentence, so it is
+	// held to the same rule.
+	codeField = regexp.MustCompile(`ErrorCode\s*=\s*"([a-z][a-z0-9_.]*)"`)
 )
 
 // TestEveryCodeHasASentence reads the engine itself. The catalogs can be
@@ -185,6 +190,12 @@ func TestEveryCodeHasASentence(t *testing.T) {
 			if _, ok := messages[m[1]]; !ok {
 				t.Errorf("%s tags a failure %q, which is in no catalog; the daemon "+
 					"would adopt a name the interface cannot translate", f, m[1])
+			}
+		}
+		for _, m := range codeField.FindAllStringSubmatch(src, -1) {
+			seen[m[1]] = true
+			if _, ok := messages[m[1]]; !ok {
+				t.Errorf("%s records the code %q, which is in no catalog", f, m[1])
 			}
 		}
 	}

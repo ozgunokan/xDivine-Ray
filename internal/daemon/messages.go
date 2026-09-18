@@ -35,11 +35,27 @@ var messages = map[string]string{
 	"config.mode_unknown":     "unknown capture mode %q",
 	"config.tproxy_missing":   "mode %q needs TPROXY but this kernel has no tproxy support",
 	"update.failed":           "could not install the update: %w",
-	"config.build":            "build core config: %w",
-	"config.render":           "render core config: %w",
-	"config.write":            "write core config: %w",
-	"config.rejected":         "the core rejected the generated configuration",
-	"config.port_in_use":      "port %d is already in use, so the %s cannot start",
+	// The update check's own failures. They are not logged as faults — a check
+	// that could not reach GitHub is not a fault of this device — but they end
+	// up on a page, so they are named and translated like everything else.
+	"update.bad_source":        "the update source %s is not an owner/name repository",
+	"update.unreachable":       "could not reach the release page: %s",
+	"update.no_releases":       "%s has no releases, or is not the right repository",
+	"update.rate_limited":      "the release page refused the request; too many have been made from this address",
+	"update.http":              "the release page answered %s",
+	"update.unreadable":        "the release page sent something that could not be read",
+	"update.draft":             "the newest release is still a draft",
+	"update.no_bundle":         "this release has no package for %s",
+	"update.no_checksums":      "this release has no %s file, so a download from it cannot be verified",
+	"update.not_listed":        "%s is not listed in %s",
+	"update.checksum_mismatch": "%s does not match its checksum; it was deleted rather than installed",
+	"update.download_failed":   "could not download %s: %s",
+	"update.not_installable":   "%s is out, but it has no verifiable package for %s",
+	"config.build":             "build core config: %w",
+	"config.render":            "render core config: %w",
+	"config.write":             "write core config: %w",
+	"config.rejected":          "the core rejected the generated configuration",
+	"config.port_in_use":       "port %d is already in use, so the %s cannot start",
 
 	// --- core ------------------------------------------------------------
 	"core.exited":             "%w",

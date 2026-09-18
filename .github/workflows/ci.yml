@@ -42,6 +42,7 @@ jobs:
       - run: node luci-app-xwrt/test/i18n.js
       - run: node luci-app-xwrt/test/notice.js
       - run: node luci-app-xwrt/test/poll.js
+      - run: node luci-app-xwrt/test/updatebox.js
       - run: node luci-app-xwrt/test/mobile.js
 
   packaging:
