@@ -69,6 +69,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/status", s.getStatus)
 	mux.HandleFunc("GET /api/env", s.getEnv)
 	mux.HandleFunc("GET /api/config", s.getConfig)
+	mux.HandleFunc("PUT /api/config", s.putConfig)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 
 	mux.HandleFunc("GET /api/profiles", s.listProfiles)

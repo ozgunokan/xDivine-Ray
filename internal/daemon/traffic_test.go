@@ -75,12 +75,24 @@ func TestGroupMemberTrafficIsCounted(t *testing.T) {
 		{"name":"outbound>>>proxy-1>>>traffic>>>downlink","value":"40"}
 	]}`)
 
-	up, down, err := sumTraffic(out)
+	up, down, perTag, err := sumTraffic(out)
 	if err != nil {
 		t.Fatalf("sumTraffic: %v", err)
 	}
 	if up != 130 || down != 240 {
 		t.Errorf("up/down = %d/%d, want 130/240", up, down)
+	}
+
+	// And kept apart per member, which is what lets the Status page name the
+	// server a group is actually going through instead of only the group.
+	if got := perTag["proxy-0"]; got.Up != 100 || got.Down != 200 {
+		t.Errorf("proxy-0 = %d/%d, want 100/200", got.Up, got.Down)
+	}
+	if got := perTag["proxy-1"]; got.Up != 30 || got.Down != 40 {
+		t.Errorf("proxy-1 = %d/%d, want 30/40", got.Up, got.Down)
+	}
+	if len(perTag) != 2 {
+		t.Errorf("%d tags, want 2: %v", len(perTag), perTag)
 	}
 
 	// And the pattern the daemon sends has to reach those names in the first

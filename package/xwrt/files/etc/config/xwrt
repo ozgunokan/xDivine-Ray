@@ -38,6 +38,10 @@ config xwrt 'main'
 
 	# Also proxy traffic the router itself originates.
 	option proxy_router '0'
+	# Redirect mode cannot proxy UDP, so QUIC would go straight out. Refusing
+	# it makes browsers fall back to TCP, which is proxied. Ignored in the
+	# other modes; they carry UDP themselves.
+	option block_quic '1'
 
 	# Expose the SOCKS/HTTP inbounds to the LAN, not just to the router.
 	option allow_lan '1'

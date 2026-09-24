@@ -156,7 +156,7 @@ func TestParseManySkipsBadLines(t *testing.T) {
 // never like an error: the link is skipped, the rest import fine, and the
 // count is simply wrong.
 func TestNamesSurviveWhateverIsInThem(t *testing.T) {
-	base := "vless://cbe82522-df8f-4714-902e-e853a69bd6f1@a.example:443" +
+	base := "vless://00000000-1111-2222-3333-444444444444@a.example:443" +
 		"?type=tcp&encryption=none&security=tls&sni=a.example"
 
 	cases := []struct{ frag, want string }{

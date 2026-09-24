@@ -188,7 +188,7 @@ return view.extend({
 				E('div', { 'class': 'td' }, xwrt.actionLabel(r.action)),
 				E('div', { 'class': 'td', 'style': 'word-break:break-word' },
 					xwrt.ruleSummary(r) || E('em', {}, _('matches nothing'))),
-				E('div', { 'class': 'td cbi-section-actions', 'style': 'white-space:nowrap' }, [
+				xwrt.rowActions([
 					E('button', {
 						'class': 'cbi-button cbi-button-neutral',
 						'title': _('Move up'),

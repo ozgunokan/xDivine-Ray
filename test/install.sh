@@ -317,6 +317,118 @@ else
 fi
 rm -f "$WORK/bin/xwrt"
 
+# --- dependencies ------------------------------------------------------------
+#
+# The installer used to print a list of missing packages and leave the person
+# reading it to type the commands. Someone installed xwrt for a friend, hit
+# that, and fixed it by hand — so now it installs them, and this is where that
+# is checked.
+#
+# There is no apk or opkg on the machine running this, and there must not be:
+# a test that really installs packages is a test that changes the machine it
+# runs on. A fake one on PATH records what it was asked for, which is the only
+# thing worth asserting anyway.
+DEPLOG="$WORK/pkg.log"
+make_pkg_manager() {   # make_pkg_manager <name> <exit status for add/install>
+	cat > "$WORK/bin/$1" <<PKGSTUB
+#!/bin/sh
+echo "\$@" >> "$DEPLOG"
+case "\$1" in
+	update) exit 0 ;;
+esac
+exit $2
+PKGSTUB
+	chmod 755 "$WORK/bin/$1"
+}
+drop_pkg_managers() { rm -f "$WORK/bin/apk" "$WORK/bin/opkg"; }
+
+# A dependency that is present must not be reinstalled, and one that is absent
+# must be. xray-core is the one that can be faked from PATH either way.
+make_pkg_manager apk 0
+: > "$DEPLOG"
+printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/xray"
+chmod 755 "$WORK/bin/xray"
+( cd "$PKG" && sh install.sh ) > "$WORK/deps-present.log" 2>&1 ||
+	bad "install.sh failed while installing dependencies"
+if grep -q "xray-core" "$DEPLOG"; then
+	bad "xray-core was already on this device and was installed again"
+else
+	ok "a dependency that is already there is left alone"
+fi
+grep -q "xray-core: already here" "$WORK/deps-present.log" ||
+	bad "the installer does not say which dependencies it found"
+
+rm -f "$WORK/bin/xray"
+: > "$DEPLOG"
+( cd "$PKG" && sh install.sh ) > "$WORK/deps-missing.log" 2>&1 ||
+	bad "install.sh failed when a dependency was missing"
+if grep -q "add xray-core" "$DEPLOG"; then
+	ok "a missing dependency is installed rather than just reported"
+else
+	bad "xray-core was missing and the installer did not try to install it:"
+	sed 's/^/     /' "$DEPLOG" >&2
+fi
+grep -q "update" "$DEPLOG" ||
+	bad "the package lists were never refreshed, so every package would be unknown"
+
+# A package manager that refuses. The install must still finish — the files are
+# worth having — and the end of the output must name what is missing, say what
+# it is for, and give the command, because that is the whole point of the
+# exercise.
+make_pkg_manager apk 1
+: > "$DEPLOG"
+if ( cd "$PKG" && sh install.sh ) > "$WORK/deps-fail.log" 2>&1; then
+	ok "an install whose dependencies could not be fetched still completes"
+else
+	bad "a failed dependency install aborted the whole installation"
+fi
+for want in "still missing" "xray-core" "the proxy core" "apk add"; do
+	grep -q -- "$want" "$WORK/deps-fail.log" ||
+		bad "the closing report does not mention \"$want\""
+done
+if grep -q "no connection can be made at all" "$WORK/deps-fail.log"; then
+	ok "and it says plainly what a missing core costs"
+else
+	bad "xray-core is missing and the report does not say the tunnel cannot start"
+fi
+
+# The way out it offers has to be a way out. With this stub refusing every
+# package, kmod-nft-tproxy is missing too, so suggesting tproxy as the
+# alternative to a broken tun would send someone to the one other mode that
+# cannot work either.
+if grep -q "tproxy does not" "$WORK/deps-fail.log"; then
+	ok "and it does not offer a mode whose own dependency is missing"
+elif grep -q "tproxy modes still work" "$WORK/deps-fail.log"; then
+	bad "tproxy is missing and the report still offers it as the way out"
+fi
+
+# --no-deps is for the person who manages packages themselves, and for the
+# updater running on a device where the answer is already known.
+: > "$DEPLOG"
+( cd "$PKG" && sh install.sh --no-deps ) > "$WORK/deps-skip.log" 2>&1 ||
+	bad "install.sh --no-deps failed"
+if [ -s "$DEPLOG" ]; then
+	bad "--no-deps still ran the package manager:"
+	sed 's/^/     /' "$DEPLOG" >&2
+else
+	ok "--no-deps touches no packages"
+fi
+grep -q "still missing" "$WORK/deps-skip.log" ||
+	bad "--no-deps skipped the install and also skipped saying what is missing"
+
+# And a device with neither manager is told so, rather than being left to
+# wonder why nothing happened.
+drop_pkg_managers
+: > "$DEPLOG"
+# Removing the stubs is enough: this machine has no real apk or opkg either,
+# which the guard at the top of this file would have complained about if it
+# did.
+( cd "$PKG" && sh install.sh ) > "$WORK/deps-none.log" 2>&1 ||
+	bad "install.sh failed on a device with no package manager"
+grep -q "neither apk nor opkg" "$WORK/deps-none.log" ||
+	bad "a device with no package manager gets no explanation"
+ok "a device with no package manager is told why nothing was installed"
+
 # --- tidy up -------------------------------------------------------------------
 ( cd "$PKG" && sh uninstall.sh ) >/dev/null 2>&1
 rm -f /etc/config/xwrt

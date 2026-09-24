@@ -43,6 +43,10 @@ type Plan struct {
 	ProxyRouter bool
 	RedirectDNS bool
 
+	// BlockQUIC refuses UDP 443 from LAN clients. Only meaningful in the mode
+	// that cannot proxy UDP; see model.Mode.CarriesUDP.
+	BlockQUIC bool
+
 	// BypassCIDRs are destinations that must never be captured. Private ranges
 	// are always added on top of whatever the operator configured.
 	BypassCIDRs []string

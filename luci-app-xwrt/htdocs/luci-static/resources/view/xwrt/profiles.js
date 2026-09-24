@@ -656,7 +656,7 @@ return view.extend({
 				E('div', { 'class': 'td' }, xwrt.transportLabel(p)),
 				E('div', { 'class': 'td' }, p.subscription ? _('subscription') : _('manual')),
 				pingCell,
-				E('div', { 'class': 'td cbi-section-actions' }, [
+				xwrt.rowActions([
 					E('button', {
 						'class': 'cbi-button cbi-button-apply',
 						'click': ui.createHandlerFn(self, function() {
@@ -749,7 +749,7 @@ return view.extend({
 					}, names.length ? '(' + names.slice(0, 3).join(', ') +
 						(names.length > 3 ? ', …' : '') + ')' : '')
 				]),
-				E('div', { 'class': 'td cbi-section-actions' }, [
+				xwrt.rowActions([
 					E('button', {
 						'class': 'cbi-button cbi-button-apply',
 						'click': ui.createHandlerFn(self, function() {
@@ -798,7 +798,7 @@ return view.extend({
 				E('div', { 'class': 'td', 'style': 'word-break:break-all' }, s.url),
 				E('div', { 'class': 'td' }, String(s.count || 0)),
 				E('div', { 'class': 'td' }, s.updated || _('never')),
-				E('div', { 'class': 'td cbi-section-actions' }, [
+				xwrt.rowActions([
 					E('button', {
 						'class': 'cbi-button cbi-button-neutral',
 						'click': ui.createHandlerFn(self, function() {

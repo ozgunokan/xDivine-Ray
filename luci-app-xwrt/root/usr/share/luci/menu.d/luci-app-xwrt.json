@@ -36,6 +36,15 @@
 		}
 	},
 
+	"admin/vpn/xdivine-ray/json": {
+		"title": "JSON",
+		"order": 55,
+		"action": {
+			"type": "view",
+			"path": "xwrt/json"
+		}
+	},
+
 	"admin/vpn/xdivine-ray/rules": {
 		"title": "Rules",
 		"order": 25,

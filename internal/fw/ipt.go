@@ -11,6 +11,7 @@ const (
 	chainPre  = "XWRT_PRE"
 	chainMark = "XWRT_MARK"
 	chainOut  = "XWRT_OUT"
+	chainQUIC = "XWRT_QUIC"
 )
 
 // iptBackend targets OpenWrt 21.02 and older, where fw3 drives iptables.
@@ -62,7 +63,27 @@ func (b *iptBackend) Apply(p Plan) error {
 			return err
 		}
 	}
+	if p.BlockQUIC && !p.Mode.CarriesUDP() {
+		if err := b.applyQUICBlock(p); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// applyQUICBlock refuses QUIC from the LAN in the one mode that cannot carry
+// it. See the nftables backend's writeQUICChain for why this exists and why it
+// is a refusal rather than a drop.
+func (b *iptBackend) applyQUICBlock(p Plan) error {
+	if err := b.newChain("filter", chainQUIC, p); err != nil {
+		return err
+	}
+	if err := runCmd("iptables", "-t", "filter", "-A", chainQUIC,
+		"-p", "udp", "--dport", "443",
+		"-j", "REJECT", "--reject-with", "icmp-port-unreachable"); err != nil {
+		return err
+	}
+	return b.hook("filter", "FORWARD", chainQUIC, p)
 }
 
 // applyNAT redirects TCP, and DNS for both protocols, into local ports.
@@ -258,11 +279,15 @@ func (b *iptBackend) hook(table, hookChain, chain string, p Plan) error {
 }
 
 func (b *iptBackend) Revert() error {
-	for _, table := range []string{"nat", "mangle"} {
+	// The filter table is in this list because of the QUIC block. Leaving it
+	// behind would be the worst kind of leftover: the tunnel is off, nothing
+	// is running, and every client on the network silently loses QUIC with no
+	// process left to blame.
+	for _, table := range []string{"nat", "mangle", "filter"} {
 		// A jump may have been installed once per LAN device, so delete
 		// repeatedly until iptables reports there is nothing left.
-		for _, hook := range []string{"PREROUTING", "OUTPUT"} {
-			for _, chain := range []string{chainPre, chainMark, chainOut} {
+		for _, hook := range []string{"PREROUTING", "OUTPUT", "FORWARD"} {
+			for _, chain := range []string{chainPre, chainMark, chainOut, chainQUIC} {
 				for i := 0; i < 8; i++ {
 					if err := deleteJump(table, hook, chain); err != nil {
 						break
@@ -270,7 +295,7 @@ func (b *iptBackend) Revert() error {
 				}
 			}
 		}
-		for _, chain := range []string{chainPre, chainMark, chainOut} {
+		for _, chain := range []string{chainPre, chainMark, chainOut, chainQUIC} {
 			runCmdQuiet("iptables", "-t", table, "-F", chain)
 			runCmdQuiet("iptables", "-t", table, "-X", chain)
 		}

@@ -95,6 +95,14 @@ return view.extend({
 		o.value('tun', _('TUN — everything through the tunnel'));
 		o.default = 'mixed';
 
+		// Only redirect mode can act on this, and the field says so rather
+		// than being hidden: someone comparing modes should be able to see
+		// that the sharp edge of redirect has a switch attached to it.
+		o = s.taboption('general', form.Flag, 'block_quic', _('Refuse QUIC in redirect mode'),
+			_('Redirect mode proxies TCP and lets UDP go straight out, so QUIC — which is what video sites use — bypasses the tunnel entirely. Where that direct path is filtered or slowed, the result is a video that stalls rather than an error. Refusing QUIC makes the browser fall back to TCP at once, which is proxied. This does nothing in the other three modes: they carry UDP themselves.'));
+		o.default = '1';
+		o.depends('mode', 'redirect');
+
 		o = s.taboption('general', form.Flag, 'proxy_router', _('Proxy the router\'s own traffic as well'),
 			_('Capture not only forwarded LAN traffic but what the router itself produces. With this on, the device\'s own business — package updates, the DDNS client, NTP — goes through the tunnel too: sometimes that is the point, and sometimes it is how you lose remote access.'));
 		o.default = '0';

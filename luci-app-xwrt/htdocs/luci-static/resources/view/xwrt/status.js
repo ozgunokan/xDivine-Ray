@@ -53,17 +53,77 @@ function spec(valueMB, text) {
 // targetCell names what the daemon is connected to, and for a group says how
 // it is choosing between members — the difference between a group that fails
 // over and one that does not is worth seeing at a glance.
+//
+// It also names the member traffic is going through, which the group's own
+// name never did. On a router pointed at five servers, "grup (5 sunucu, en
+// hızlı)" answers none of the question anyone has. The balancer does not
+// announce its choice, so this comes from the members' counters: the ones that
+// moved since the last reading. Under random or in turn that is more than one
+// name, and it says so rather than picking a tidier answer than the truth.
 function targetCell(status) {
 	if (!status.profile_name)
 		return '-';
 	if (status.target_kind !== 'group')
 		return status.profile_name;
-	return E('span', {}, [
+
+	var parts = [
 		status.profile_name,
 		E('span', { 'style': 'color:#9e9e9e' },
 			'  (' + _('group of %d').format(status.group_members || 0) + ', ' +
 			xwrt.strategyLabel(status.group_strategy) + ')')
-	]);
+	];
+
+	var live = status.group_live || [];
+	if (live.length)
+		parts.push(E('div', { 'style': 'margin-top:.2em' }, [
+			E('span', { 'style': 'color:#9e9e9e' }, _('through') + ' '),
+			E('strong', {}, live.join(', '))
+		]));
+	else if (status.connected)
+		// Connected, and nothing has moved between the last two readings.
+		// Saying "through: nothing" would be wrong — the tunnel is up, it is
+		// simply idle — and naming a server anyway would be a guess.
+		parts.push(E('div', { 'style': 'margin-top:.2em;color:#9e9e9e' },
+			_('no traffic yet, so no member has been used')));
+
+	return E('span', {}, parts);
+}
+
+// memberTable lists every member of the running group with what it has carried.
+//
+// It is here rather than on the Servers page because it is about this
+// connection: the same server in two groups has two different stories, and the
+// numbers reset when the core restarts.
+function memberTable(status) {
+	var usage = status.group_usage || [];
+	if (!usage.length)
+		return [];
+
+	var rows = usage.map(function(m) {
+		return E('div', { 'class': 'tr' }, [
+			E('div', { 'class': 'td' }, m.live
+				? E('span', {}, [
+					E('span', { 'style': 'color:#4caf50' }, '● '),
+					E('strong', {}, m.name)
+				])
+				: E('span', { 'style': 'opacity:.75' }, m.name)),
+			E('div', { 'class': 'td' }, m.live ? _('in use') : '-'),
+			E('div', { 'class': 'td' }, xwrt.formatBytes(m.uplink)),
+			E('div', { 'class': 'td' }, xwrt.formatBytes(m.downlink))
+		]);
+	});
+
+	return [
+		E('h3', {}, _('Servers in this group')),
+		xwrt.scroll(E('div', { 'class': 'table xwrt-table' }, [
+			E('div', { 'class': 'tr table-titles' }, [
+				E('div', { 'class': 'th' }, _('Server')),
+				E('div', { 'class': 'th' }, _('Now')),
+				E('div', { 'class': 'th' }, _('Sent')),
+				E('div', { 'class': 'th' }, _('Received'))
+			])
+		].concat(rows)))
+	];
 }
 
 // failureBanner shows the last failure the daemon recorded: what failed, at
@@ -459,7 +519,7 @@ return view.extend({
 					E('span', { 'id': 'xwrt-actions', 'style': 'display:flex;gap:.5em' },
 						actionButtons(status, select, self))
 				])
-			]),
+			].concat(memberTable(status))),
 
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Speed and latency test')),

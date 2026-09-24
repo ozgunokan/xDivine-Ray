@@ -23,6 +23,7 @@ import (
 	"xwrt/internal/mode"
 	"xwrt/internal/model"
 	"xwrt/internal/netenv"
+	"xwrt/internal/netmon"
 	"xwrt/internal/proc"
 	"xwrt/internal/selftest"
 	"xwrt/internal/ucicfg"
@@ -79,7 +80,20 @@ type Engine struct {
 	prevStats model.Stats
 	prevAt    time.Time
 	history   *History
+
+	// What each member of a group has carried, by outbound tag, and which of
+	// them moved between the last two readings. A balancer never announces its
+	// choice — but a counter that grows belongs to a member it chose, and that
+	// is the only evidence there is.
+	memberBytes  map[string]tagTraffic
+	memberMoving map[string]bool
+
+	// When the connection table was last reported as nearly full.
+	conntrackWarnedAt time.Time
 }
+
+// conntrackWarnEvery is how often that warning may repeat.
+const conntrackWarnEvery = 10 * time.Minute
 
 // Version is the build this daemon was compiled from. It is set from the same
 // ldflags value as the CLI's, and reported in the status so that a daemon still
@@ -162,6 +176,7 @@ func (e *Engine) Status() model.Status {
 		st.ProfileName = e.group.Label()
 		st.GroupStrategy = string(e.group.Strategy)
 		st.GroupMembers = len(e.members)
+		st.GroupUsage, st.GroupLive = e.memberUsageLocked()
 	case e.profile != nil:
 		st.TargetKind = model.TargetProfile
 		st.ProfileID = e.profile.ID
@@ -601,6 +616,7 @@ func (e *Engine) planLocked(s *model.Settings) fw.Plan {
 		MarkTunUDP:  s.MarkTunUDP(),
 		ProxyRouter: s.ProxyRouter,
 		RedirectDNS: s.DNSMode == model.DNSRedirect,
+		BlockQUIC:   s.BlockQUIC,
 		BypassCIDRs: s.BypassIP,
 		BypassMACs:  s.BypassMAC,
 	}
@@ -962,12 +978,27 @@ func (e *Engine) startStatsLocked() {
 			case <-stop:
 				return
 			case <-ticker.C:
-				up, down, err := queryStats(bin, port)
+				up, down, perTag, err := queryStats(bin, port)
 				if err != nil {
 					continue
 				}
 				e.mu.Lock()
+				// Which members moved since the last reading. A counter that
+				// grew belongs to a member the balancer actually chose; one
+				// that stood still belongs to a member it did not, whatever
+				// the strategy says it would do.
+				if len(e.memberBytes) > 0 {
+					moving := map[string]bool{}
+					for tag, t := range perTag {
+						if t.total() > e.memberBytes[tag].total() {
+							moving[tag] = true
+						}
+					}
+					e.memberMoving = moving
+				}
+				e.memberBytes = perTag
 				now := time.Now()
+				e.checkConntrackLocked(now)
 				if !e.prevAt.IsZero() {
 					if secs := now.Sub(e.prevAt).Seconds(); secs > 0 {
 						e.stats.UplinkRate = int64(float64(up-e.prevStats.Uplink) / secs)
@@ -1010,13 +1041,13 @@ type statsResponse struct {
 // queryStats reads the core's traffic counters through its own CLI. Talking to
 // the gRPC API directly would pull the whole grpc stack into this binary; on a
 // router, shelling out to a tool that is already installed is the better trade.
-func queryStats(bin string, port int) (up, down int64, err error) {
+func queryStats(bin string, port int) (up, down int64, perTag map[string]tagTraffic, err error) {
 	server := "127.0.0.1:" + strconv.Itoa(port)
 	cmd := exec.Command(bin, "api", "statsquery", "--server="+server,
 		"-pattern", statsPattern)
 	out, err := cmd.Output()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	return sumTraffic(out)
 }
@@ -1035,21 +1066,133 @@ const statsPattern = "outbound>>>" + xray.TagProxy
 // sumTraffic adds up whatever the query returned. A group has one counter per
 // member and only their sum is meaningful: the balancer moves between members,
 // so any single member's number is a fraction of what went through the tunnel.
-func sumTraffic(out []byte) (up, down int64, err error) {
+// It also keeps the per-member figures, which are the only honest answer to
+// "which server in this group am I actually on". A balancer does not announce
+// its choice and can change it between one connection and the next; what it
+// cannot hide is which member's counters are moving. The Status page used to
+// name the group and stop there, which told an operator with five servers
+// nothing about which of the five was carrying their traffic.
+func sumTraffic(out []byte) (up, down int64, perTag map[string]tagTraffic, err error) {
 	var res statsResponse
 	if err := json.Unmarshal(out, &res); err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
+	perTag = map[string]tagTraffic{}
 	for _, s := range res.Stat {
 		v := toInt64(s.Value)
+		tag := statTag(s.Name)
 		switch {
 		case strings.HasSuffix(s.Name, ">>>uplink"):
 			up += v
+			if tag != "" {
+				t := perTag[tag]
+				t.Up += v
+				perTag[tag] = t
+			}
 		case strings.HasSuffix(s.Name, ">>>downlink"):
 			down += v
+			if tag != "" {
+				t := perTag[tag]
+				t.Down += v
+				perTag[tag] = t
+			}
 		}
 	}
-	return up, down, nil
+	return up, down, perTag, nil
+}
+
+// checkConntrackLocked says something when the kernel's connection table is
+// nearly full.
+//
+// It exists because that condition is invisible from everywhere anyone would
+// think to look. The tunnel is up, the core is running, the interface says
+// connected, and what someone sees is a video that plays for twenty minutes
+// and then stalls for a few seconds at a time, over and over. The kernel's own
+// complaint goes to dmesg. Nothing in this project said a word about it.
+//
+// Only while connected, and only occasionally: the condition lasts as long as
+// the device is busy, and a line every two seconds would bury the log it is
+// meant to be found in.
+func (e *Engine) checkConntrackLocked(now time.Time) {
+	if !e.connected {
+		return
+	}
+	if !e.conntrackWarnedAt.IsZero() &&
+		now.Sub(e.conntrackWarnedAt) < conntrackWarnEvery {
+		return
+	}
+	c := netmon.ReadCapacity()
+	if !c.Tight() {
+		// Recovered: let the next tight moment be reported promptly rather
+		// than in ten minutes.
+		e.conntrackWarnedAt = time.Time{}
+		return
+	}
+	e.conntrackWarnedAt = now
+	e.Log.Warnf("the kernel's connection table is %d%% full (%d of %d). When it "+
+		"fills, new connections are dropped until old ones time out, which looks "+
+		"like a video freezing for a few seconds and then carrying on. The "+
+		"capture modes that use NAT — redirect and mixed — take a slot per client "+
+		"connection; TUN mode takes almost none, which is why the same device can "+
+		"be fine in TUN and stall in mixed. Raise it with: sysctl -w "+
+		"net.netfilter.nf_conntrack_max=%d  (and put it in /etc/sysctl.conf so it "+
+		"survives a reboot)",
+		c.Percent, c.Count, c.Max, c.Max*2)
+}
+
+// memberUsageLocked pairs each member of the running group with its counters.
+//
+// The pairing is by position and only by position: the config generator tags a
+// group's outbounds "proxy-0", "proxy-1"… in the order the members are listed,
+// and e.members is that same list. Nothing else connects a counter to a server,
+// which is why both ends are built from one order rather than matched by name.
+func (e *Engine) memberUsageLocked() ([]model.MemberUsage, []string) {
+	if e.group == nil || len(e.members) == 0 {
+		return nil, nil
+	}
+	usage := make([]model.MemberUsage, 0, len(e.members))
+	var live []string
+	for i := range e.members {
+		tag := fmt.Sprintf("%s%d", xray.TagProxyPrefix, i)
+		t := e.memberBytes[tag]
+		u := model.MemberUsage{
+			ProfileID: e.members[i].ID,
+			Name:      e.members[i].Label(),
+			Uplink:    t.Up,
+			Downlink:  t.Down,
+			Live:      e.memberMoving[tag],
+		}
+		if u.Live {
+			live = append(live, u.Name)
+		}
+		usage = append(usage, u)
+	}
+	return usage, live
+}
+
+// tagTraffic is what one outbound has carried.
+type tagTraffic struct{ Up, Down int64 }
+
+func (t tagTraffic) total() int64 { return t.Up + t.Down }
+
+// statTag pulls the outbound tag out of a counter name such as
+//
+//	outbound>>>proxy-2>>>traffic>>>uplink
+//
+// A single server is one outbound called "proxy"; a group is one per member,
+// "proxy-0" upwards, numbered in the order the members are listed. That
+// numbering is what maps a counter back to a profile, and it is the only thing
+// that does — so it is read here rather than guessed at the call site.
+func statTag(name string) string {
+	rest, ok := strings.CutPrefix(name, "outbound>>>")
+	if !ok {
+		return ""
+	}
+	i := strings.Index(rest, ">>>")
+	if i <= 0 {
+		return ""
+	}
+	return rest[:i]
 }
 
 func toInt64(v any) int64 {

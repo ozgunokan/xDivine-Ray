@@ -122,6 +122,9 @@ func (b *nftBackend) ruleset(p Plan) string {
 	if p.ProxyRouter && p.Mode.NeedsFirewallCapture() {
 		b.writeOutputChains(&s, p)
 	}
+	if p.BlockQUIC && !p.Mode.CarriesUDP() {
+		b.writeQUICChain(&s, p)
+	}
 
 	s.WriteString("}\n")
 	return s.String()
@@ -180,6 +183,36 @@ func (b *nftBackend) writeUDPMarkChain(s *strings.Builder, p Plan) {
 		_ = dnsPort
 	}
 	s.WriteString("\t\tmeta l4proto udp counter meta mark set " + mark + "\n")
+	s.WriteString("\t}\n\n")
+}
+
+// writeQUICChain refuses QUIC from the LAN in the one mode that cannot carry
+// it.
+//
+// Redirect mode proxies TCP and lets UDP go straight out, so a browser talking
+// QUIC to a video site is not going through the tunnel at all. On a network
+// where that direct path is filtered or shaped, the result is not a clean
+// failure — it is a video that stalls, because the client keeps trying a UDP
+// connection that half works instead of using the TCP one that would have been
+// proxied. Refusing the UDP is what makes it give up and fall back, and a
+// browser does that immediately.
+//
+// A refusal rather than a drop, and that is the whole point: a dropped packet
+// is answered by a timeout, which is the stall this is meant to remove. An
+// ICMP port-unreachable arrives at once.
+//
+// The forward hook only. The router's own UDP is left alone deliberately: a
+// profile whose transport is QUIC or mKCP reaches its server over UDP 443 from
+// this device, and blocking that would take the tunnel down rather than fix
+// anything.
+//
+// Priority is ahead of the distribution's own forward chain so the refusal is
+// not sitting behind an accept.
+func (b *nftBackend) writeQUICChain(s *strings.Builder, p Plan) {
+	s.WriteString("\tchain forward {\n")
+	s.WriteString("\t\ttype filter hook forward priority -25; policy accept;\n")
+	b.writeScopeGuards(s, p)
+	s.WriteString("\t\tudp dport 443 counter reject\n")
 	s.WriteString("\t}\n\n")
 }
 

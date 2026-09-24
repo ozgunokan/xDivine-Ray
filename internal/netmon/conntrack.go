@@ -79,6 +79,11 @@ type Snapshot struct {
 	TotalFlows int `json:"total_flows"`
 	LANFlows   int `json:"lan_flows"`
 
+	// Capacity is how close the kernel's table is to full. See capacity.go:
+	// this is the number that explains a device which works for twenty
+	// minutes and then stalls for a few seconds at a time.
+	Capacity Capacity `json:"capacity"`
+
 	Clients []Client  `json:"clients"`
 	Flows   []Flow    `json:"flows"`
 	TakenAt time.Time `json:"taken_at"`
@@ -99,7 +104,8 @@ func Read(o Options) (*Snapshot, error) {
 	if o.TopFlows <= 0 {
 		o.TopFlows = 100
 	}
-	snap := &Snapshot{TakenAt: time.Now(), Accounting: accountingEnabled()}
+	snap := &Snapshot{TakenAt: time.Now(), Accounting: accountingEnabled(),
+		Capacity: ReadCapacity()}
 
 	f, err := os.Open(conntrackPath)
 	if err != nil {

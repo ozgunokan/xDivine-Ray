@@ -126,23 +126,146 @@ fi
 # on nothing is to unpack one bundle and run the install command from another.
 echo "==> installing xDivine-Ray $(cat ./VERSION 2>/dev/null || echo '?') from $(pwd)"
 
+# --- dependencies ------------------------------------------------------------
+#
+# xwrt manages other people's programs, and until now this step only listed the
+# ones that were missing. That reads fine on a device which has them and is
+# useless on one which does not: whoever is installing has to read a list off a
+# screen that is about to scroll, work out which package manager this build
+# uses, and type it out. Someone installed this for a friend, hit exactly that,
+# and fixed it by hand — which is the work a script should be doing.
+#
+# So: what is here is left alone, what is missing is installed, and what cannot
+# be installed is named at the end together with what its absence costs.
+#
+# Nothing in this section aborts the install, on purpose. The files are worth
+# having on a device whose dependencies arrive later, and stopping halfway is
+# the failure this whole script is arranged around. It also installs only the
+# packages named below — never an upgrade, which on a router is a good way to
+# fill the flash and a better way to change something nobody asked to change.
+DEPS_SKIP="${XWRT_NO_DEPS:-0}"
+for arg in "$@"; do
+	case "$arg" in
+		--no-deps) DEPS_SKIP=1 ;;
+	esac
+done
+
+# What each one is tested by, and it is the capability rather than the file.
+# BusyBox ships an `ip` that exists and has no `ip rule`, so looking for the
+# binary says yes on a device where every mode but plain redirect is broken.
+dep_present() {
+	case "$1" in
+		xray-core)
+			command -v xray >/dev/null 2>&1 ;;
+		ip-full)
+			ip rule list >/dev/null 2>&1 ;;
+		kmod-tun)
+			[ -c /dev/net/tun ] ||
+				{ modprobe tun >/dev/null 2>&1 && [ -c /dev/net/tun ]; } ;;
+		hev-socks5-tunnel)
+			command -v hev-socks5-tunnel >/dev/null 2>&1 ;;
+		kmod-nft-tproxy)
+			grep -q nft_tproxy /proc/modules 2>/dev/null ||
+				modprobe nft_tproxy >/dev/null 2>&1 ||
+				[ -e "/lib/modules/$(uname -r)/nft_tproxy.ko" ] ;;
+		*)
+			return 1 ;;
+	esac
+}
+
+dep_why() {
+	case "$1" in
+		xray-core)         echo "the proxy core; nothing can connect without it" ;;
+		ip-full)           echo "policy routing; every mode except plain redirect needs it" ;;
+		kmod-tun)          echo "the tunnel device, for mixed (the default mode) and tun" ;;
+		hev-socks5-tunnel) echo "serves that tunnel device" ;;
+		kmod-nft-tproxy)   echo "the kernel half of tproxy mode" ;;
+	esac
+}
+
+DEPS_WANTED="xray-core ip-full kmod-tun hev-socks5-tunnel kmod-nft-tproxy"
+DEPS_MISSING=""
+DEPS_NOTE=""
+
 echo "==> checking dependencies"
-missing=""
-command -v xray >/dev/null 2>&1 || missing="$missing xray-core"
-command -v nft >/dev/null 2>&1 || command -v iptables >/dev/null 2>&1 || \
-	missing="$missing nftables-or-iptables"
-command -v ip >/dev/null 2>&1 || missing="$missing ip-full"
-if [ -n "$missing" ]; then
-	echo "    missing:$missing"
-	# Newer OpenWrt uses apk, older uses opkg; printing the wrong command is a
-	# needless dead end for whoever reads this.
-	if command -v apk >/dev/null 2>&1; then
-		echo "    install them with: apk add xray-core ip-full"
+for dep in $DEPS_WANTED; do
+	if dep_present "$dep"; then
+		echo "    $dep: already here"
 	else
-		echo "    install them with: opkg update && opkg install xray-core ip-full"
+		DEPS_MISSING="$DEPS_MISSING $dep"
+		echo "    $dep: missing"
 	fi
-	echo "    (mixed and tun modes additionally need: kmod-tun hev-socks5-tunnel)"
-	echo
+done
+DEPS_MISSING="${DEPS_MISSING# }"
+
+if [ -n "$DEPS_MISSING" ] && [ "$DEPS_SKIP" = "1" ]; then
+	DEPS_NOTE="skipped by --no-deps"
+elif [ -n "$DEPS_MISSING" ]; then
+	PKG=""
+	if command -v apk >/dev/null 2>&1; then
+		PKG=apk
+	elif command -v opkg >/dev/null 2>&1; then
+		PKG=opkg
+	fi
+
+	if [ -z "$PKG" ]; then
+		DEPS_NOTE="this device has neither apk nor opkg, so nothing could be installed"
+	else
+		# Flash, before anything is downloaded. A router that runs out of space
+		# mid-install ends up with a half-written package database, and that is
+		# a worse place to be than one package short. The core alone is around
+		# ten megabytes on most architectures.
+		free_kb=$(df -k /overlay 2>/dev/null | awk 'NR==2 {print $4}')
+		[ -n "$free_kb" ] || free_kb=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
+		[ -n "$free_kb" ] || free_kb=0
+
+		if [ "$free_kb" -lt 15000 ]; then
+			DEPS_NOTE="only ${free_kb}kB free, which is not enough to install \
+safely; free some space and install them by hand"
+		else
+			echo "==> installing what is missing, with $PKG"
+			echo "    (skip this next time with: sh install.sh --no-deps)"
+
+			# The package lists first. Without them opkg reports every package
+			# as unknown, which reads like the package does not exist rather
+			# than like nobody has fetched the index.
+			if "$PKG" update </dev/null >/dev/null 2>&1; then
+				:
+			else
+				echo "    warning: '$PKG update' failed — the package lists may" >&2
+				echo "    be stale or this device has no way out to the" >&2
+				echo "    repositories yet. Trying anyway." >&2
+			fi
+
+			still=""
+			for dep in $DEPS_MISSING; do
+				printf '    %s ... ' "$dep"
+				# apk adds, opkg installs. Trying both in turn would print one
+				# manager's "unknown command" every single time.
+				case "$PKG" in
+					apk)  set -- add "$dep" ;;
+					*)    set -- install "$dep" ;;
+				esac
+				if "$PKG" "$@" </dev/null >/tmp/xwrt-dep.$$ 2>&1; then
+					if dep_present "$dep"; then
+						echo "installed"
+					else
+						# Installed and still not usable. A kernel module is
+						# the usual reason: the package went in but the running
+						# kernel is not the one it was built for.
+						echo "installed, but still not usable"
+						still="$still $dep"
+					fi
+				else
+					echo "could not be installed"
+					sed 's/^/        /' /tmp/xwrt-dep.$$ >&2 2>/dev/null || true
+					still="$still $dep"
+				fi
+				rm -f /tmp/xwrt-dep.$$
+			done
+			DEPS_MISSING="${still# }"
+		fi
+	fi
 fi
 
 # The daemon has to stop before its own binary is replaced. A running
@@ -381,6 +504,58 @@ if [ "$disk" != "$want" ]; then
 	echo "    !! Check free space: df -h /overlay" >&2
 	fail=1
 fi
+# What is still not here, said last, because the dependency step ran near the
+# top and everything since has scrolled past it.
+#
+# This does not set fail: xwrt itself installed correctly, and saying "install
+# incomplete" would send someone looking for a problem with the install rather
+# than with the packages it needs. What it does is name each one, say what it is
+# for, and give the exact command — so the next person does not have to work
+# that out from a symptom weeks later.
+if [ -n "$DEPS_MISSING" ]; then
+	echo
+	echo "    !! These are still missing:"
+	for dep in $DEPS_MISSING; do
+		echo "    !!   $dep — $(dep_why "$dep")"
+	done
+	[ -n "$DEPS_NOTE" ] && echo "    !! ($DEPS_NOTE)"
+	echo "    !!"
+	case "$DEPS_MISSING" in
+		*xray-core*)
+			echo "    !! Without xray-core no connection can be made at all." ;;
+	esac
+	case "$DEPS_MISSING" in
+		*kmod-tun*|*hev-socks5-tunnel*)
+			echo "    !! Without the tunnel pieces, mixed — which is the default"
+			echo "    !! mode — and tun will fail at connect time."
+			# Which way out is left depends on what else is missing, and
+			# offering tproxy while tproxy is also missing is how someone
+			# spends an afternoon on the one mode that cannot work either.
+			case "$DEPS_MISSING" in
+				*kmod-nft-tproxy*)
+					echo "    !! Redirect mode still works; tproxy does not," ;;
+				*)
+					echo "    !! Redirect and tproxy modes still work," ;;
+			esac
+			echo "    !! so set the capture mode in Settings accordingly." ;;
+	esac
+	if command -v apk >/dev/null 2>&1; then
+		echo "    !! Install by hand with: apk add $DEPS_MISSING"
+	else
+		echo "    !! Install by hand with: opkg update && opkg install $DEPS_MISSING"
+	fi
+	# A kernel module that installs and still does not load is almost always
+	# this, and it is not something a package manager can fix.
+	case "$DEPS_MISSING" in
+		*kmod-*)
+			echo "    !!"
+			echo "    !! kmod- packages have to come from the same build as the"
+			echo "    !! firmware on this device. On a custom or snapshot build"
+			echo "    !! the repository will not have a matching one, and the"
+			echo "    !! module has to come from whoever built the image." ;;
+	esac
+fi
+
 if [ "$fail" != "0" ]; then
 	echo
 	echo "*** INSTALL INCOMPLETE — see the errors above. ***" >&2

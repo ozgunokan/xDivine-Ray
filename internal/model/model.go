@@ -83,6 +83,18 @@ func (m Mode) NeedsTunProcess() bool {
 	return m == ModeMixed || m == ModeTUN
 }
 
+// CarriesUDP reports whether this mode gets UDP to the proxy at all.
+//
+// Only redirect does not: NAT REDIRECT recovers the original destination with
+// SO_ORIGINAL_DST, which exists for TCP and not for UDP, so redirect mode
+// leaves UDP to go straight out. Everything a browser does over QUIC therefore
+// bypasses the tunnel in that mode — which is a leak, and on a network where
+// the direct path is shaped or filtered it is also why a video stalls instead
+// of playing: the client keeps waiting on a QUIC connection nothing is going
+// to answer properly, rather than falling back to the TCP it would have been
+// proxied over.
+func (m Mode) CarriesUDP() bool { return m != ModeRedirect }
+
 // NeedsFirewallCapture reports whether the mode installs capture rules. TUN
 // mode does not: policy routing carries the traffic instead.
 func (m Mode) NeedsFirewallCapture() bool {
@@ -482,6 +494,20 @@ type Settings struct {
 	// not just forwarded LAN traffic.
 	ProxyRouter bool `json:"proxy_router"`
 
+	// BlockQUIC refuses UDP 443 from LAN clients in the one mode that cannot
+	// proxy it.
+	//
+	// In redirect mode QUIC goes straight out, which is both a leak and, on a
+	// network where the direct path is filtered or shaped, the reason a video
+	// stalls: the client waits on a QUIC connection that will never work
+	// properly instead of using the TCP one that would have been proxied. A
+	// browser drops to TCP as soon as its UDP is refused, so refusing it is
+	// how the fallback happens in a second rather than after a timeout — and
+	// it is a refusal, not a silent drop, for exactly that reason.
+	//
+	// It does nothing in the other three modes, which carry UDP themselves.
+	BlockQUIC bool `json:"block_quic"`
+
 	XrayBin string `json:"xray_bin"`
 	HevBin  string `json:"hev_bin"`
 	RunDir  string `json:"run_dir"`
@@ -544,6 +570,11 @@ func Defaults() Settings {
 		// indistinguishable from a false the operator chose, and a switch that
 		// turns itself back on is worse than no switch.
 		AutoConnect: true,
+		// On by default, and only redirect mode ever acts on it. Leaving it
+		// off would mean the default behaviour of that mode is to let every
+		// QUIC connection past the tunnel, which is not something anyone
+		// choosing a proxy mode is asking for.
+		BlockQUIC:   true,
 		UpdateCheck: true,
 		UpdateRepo:  DefaultUpdateRepo,
 		IPv6:        false,
@@ -667,6 +698,18 @@ type Stats struct {
 	DownlinkRate int64 `json:"downlink_rate"`
 }
 
+// MemberUsage is one server inside a group, and what it has carried.
+type MemberUsage struct {
+	ProfileID string `json:"profile_id,omitempty"`
+	Name      string `json:"name"`
+	Uplink    int64  `json:"uplink"`
+	Downlink  int64  `json:"downlink"`
+	// Live is true when this member's counters moved between the last two
+	// readings, which is as close to "in use right now" as a balancer lets
+	// anyone get.
+	Live bool `json:"live"`
+}
+
 // Status is the runtime state reported to clients.
 type Status struct {
 	Connected bool `json:"connected"`
@@ -678,14 +721,25 @@ type Status struct {
 	ProfileName   string     `json:"profile_name,omitempty"`
 	GroupStrategy string     `json:"group_strategy,omitempty"`
 	GroupMembers  int        `json:"group_members,omitempty"`
-	Since         string     `json:"since,omitempty"`
-	UptimeSeconds int64      `json:"uptime_seconds"`
-	CoreRunning   bool       `json:"core_running"`
-	TunRunning    bool       `json:"tun_running,omitempty"`
-	LANDevice     string     `json:"lan_device,omitempty"`
-	WANDevice     string     `json:"wan_device,omitempty"`
-	WANGateway    string     `json:"wan_gateway,omitempty"`
-	Firewall      string     `json:"firewall,omitempty"`
+	// GroupLive names the members actually carrying traffic right now, and
+	// GroupUsage is every member with what it has carried since the connect.
+	//
+	// A group used to report its own name and stop there, which on a router
+	// with five servers answers none of the question anyone actually has:
+	// which one am I going through? The balancer does not announce its choice,
+	// and under random or round-robin there is genuinely more than one answer
+	// at a time — so this is a list, and it is read off the counters rather
+	// than from what the strategy claims it would do.
+	GroupLive     []string      `json:"group_live,omitempty"`
+	GroupUsage    []MemberUsage `json:"group_usage,omitempty"`
+	Since         string        `json:"since,omitempty"`
+	UptimeSeconds int64         `json:"uptime_seconds"`
+	CoreRunning   bool          `json:"core_running"`
+	TunRunning    bool          `json:"tun_running,omitempty"`
+	LANDevice     string        `json:"lan_device,omitempty"`
+	WANDevice     string        `json:"wan_device,omitempty"`
+	WANGateway    string        `json:"wan_gateway,omitempty"`
+	Firewall      string        `json:"firewall,omitempty"`
 	// LastError carries the most recent failure with the step it happened in,
 	// so a client can say what went wrong without fetching the log. It is
 	// cleared by a successful connect.

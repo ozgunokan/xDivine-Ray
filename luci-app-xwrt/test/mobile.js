@@ -79,6 +79,28 @@ var THEMES = {
 	// and because `* { box-sizing: border-box }` above — which this harness
 	// sets for convenience — is exactly the kindness that hid it. A theme is
 	// not obliged to be kind.
+	// luci-theme-bootstrap, the rules quoted from its own cascade.css. This is
+	// the theme DivineWRT ships, and the one where the Servers page came out as
+	// a column of five buttons per row while every other theme drew them side
+	// by side — reported with a screenshot, which is the only way anyone would
+	// ever have found it.
+	//
+	// The rule that does it is `.td.cbi-section-actions > * { display: flex }`.
+	// The theme assumes the actions cell holds exactly one element, because
+	// LuCI's own generated forms put their buttons in a wrapper div, and it
+	// makes that one element the flex row. Buttons placed straight into the
+	// cell each become a block-level flex container instead, and block-level
+	// boxes stack.
+	bootstrap: [
+		'ul.tabs, ul.cbi-tabmenu { display: flex; overflow-x: auto; }',
+		'ul.tabs > li, ul.cbi-tabmenu > li { flex: 0 0 auto; }',
+		'.td.cbi-section-actions {',
+		'  text-align: right; vertical-align: middle; width: 15%; }',
+		'.td.cbi-section-actions > * { display: flex; }',
+		'.td.cbi-section-actions > :not(.cbi-dropdown) > *,',
+		'.td.cbi-section-actions > * > form > * { flex: 1 1 4em; margin: 0 1px; }',
+		'.td.cbi-section-actions > * > form { display: inline-flex; margin: 0; }'
+	].join('\n'),
 	icon: [
 		'ul.tabs, ul.cbi-tabmenu { display: flex; overflow-x: auto; }',
 		'ul.tabs > li, ul.cbi-tabmenu > li { flex: 0 0 auto; }',
@@ -219,7 +241,28 @@ async function measure(browser, size, html, shot) {
 				wide.push((el.className || el.tagName) + ': ' +
 					el.textContent.trim().slice(0, 40));
 		});
+
+		// The buttons at the end of each table row. On a desktop they belong on
+		// one line; a theme that stacks them makes every row as tall as the
+		// buttons it holds, and a table of five servers a screenful of nothing.
+		var actions = [];
+		document.querySelectorAll(
+			'.xwrt-table > .tr > .td.cbi-section-actions').forEach(function(cell) {
+			var btns = cell.querySelectorAll('button');
+			if (btns.length < 2) return;
+			var tops = {};
+			Array.prototype.forEach.call(btns, function(b) {
+				tops[Math.round(b.getBoundingClientRect().top)] = true;
+			});
+			actions.push({
+				buttons: btns.length,
+				lines: Object.keys(tops).length,
+				height: Math.round(cell.getBoundingClientRect().height)
+			});
+		});
+
 		return {
+			actions: actions,
 			pageScroll: document.documentElement.scrollWidth -
 				document.documentElement.clientWidth,
 			tabs: rows('ul.tabs'),
@@ -289,7 +332,11 @@ async function main() {
 
 				// The desktop is not the problem being solved, and must stay
 				// as it was. One page is enough to see that.
-				if (p.name === 'profiles') {
+				// The two pages with per-row buttons are measured on a desktop
+				// too, because a column of stacked buttons is a desktop
+				// problem that the phone layout hides: at phone width they are
+				// supposed to wrap.
+				if (p.name === 'profiles' || p.name === 'rules') {
 					var desktop = await measure(browser, DESKTOP, html);
 					if (desktop.tabs && desktop.tabs.lines !== 1)
 						failures.push(where + ': page tabs wrapped on the ' +
@@ -297,6 +344,13 @@ async function main() {
 					if (desktop.pageScroll > 1)
 						failures.push(where + ': the page scrolls sideways on ' +
 							'the desktop');
+					desktop.actions.forEach(function(a) {
+						if (a.lines > 1)
+							failures.push(where + ': the ' + a.buttons +
+								' buttons on a row are stacked ' + a.lines +
+								' deep on the desktop, making the row ' +
+								a.height + 'px tall');
+					});
 				}
 			}
 			if (!failures.length)

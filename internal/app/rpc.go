@@ -41,6 +41,20 @@ func rpcMethods() map[string]rpcMethod {
 		"env":    {Signature: map[string]any{}, Call: simpleGet("/api/env")},
 		"config": {Signature: map[string]any{}, Call: simpleGet("/api/config")},
 
+		// The whole configuration, replaced in one go. `check` asks whether
+		// it would be accepted without accepting it, which is what the
+		// editor's Check button needs.
+		"put_config": {
+			Signature: map[string]any{"config": map[string]any{}, "check": false},
+			Call: func(args map[string]any) ([]byte, error) {
+				path := "/api/config"
+				if b, _ := args["check"].(bool); b {
+					path += "?check=1"
+				}
+				return fetch(http.MethodPut, path, args["config"])
+			},
+		},
+
 		"logs": {
 			Signature: map[string]any{"limit": 0, "level": "str", "source": "str", "step": "str"},
 			Call: func(args map[string]any) ([]byte, error) {

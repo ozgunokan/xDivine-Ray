@@ -220,6 +220,42 @@ Chart.prototype.renderLegend = function(sample, isHover) {
 	]);
 };
 
+// capacityLine shows how full the kernel's connection table is.
+//
+// It is here because that number is the only visible sign of a failure that
+// otherwise has none. Every connection a client makes through a NAT capture
+// mode — redirect and mixed — takes a slot; when the table fills, the kernel
+// drops new connections until old ones time out, and from a chair that looks
+// like a video playing happily for twenty minutes and then stalling for a few
+// seconds at a time, over and over. The tunnel is up the whole while and
+// nothing else on any screen changes.
+//
+// TUN mode barely touches the table, because the client's connection is
+// terminated in userspace, which is why the same device can be fine there and
+// stall in mixed.
+function capacityLine(cap) {
+	if (!cap || !cap.known)
+		return [];
+
+	var text = _('Kernel connection table: %d of %d (%d%%).')
+		.format(cap.count || 0, cap.max || 0, cap.percent || 0);
+
+	if (cap.percent < 80)
+		return E('div', { 'class': 'cbi-section-descr' }, text);
+
+	return E('div', { 'class': 'alert-message warning' }, [
+		E('div', {}, E('strong', {}, text)),
+		E('div', { 'style': 'margin-top:.3em' },
+			_('When this fills, the kernel drops new connections until old ones time out — which looks like a video freezing for a few seconds and then carrying on. Redirect and mixed modes take a slot per client connection; TUN mode takes almost none.')),
+		E('div', { 'style': 'margin-top:.3em' }, [
+			_('Raise it with:') + ' ',
+			E('code', {}, 'sysctl -w net.netfilter.nf_conntrack_max=' +
+				((cap.max || 0) * 2)),
+			' ' + _('(add it to /etc/sysctl.conf so it survives a reboot)')
+		])
+	]);
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -331,6 +367,7 @@ return view.extend({
 		parts.push(E('div', { 'class': 'cbi-section-descr' },
 			_('%d of the %d tracked connections come from the local network.')
 				.format(snap.lan_flows || 0, snap.total_flows || 0)));
+		parts.push(capacityLine(snap.capacity));
 		parts.push(this.renderFlows(snap));
 		return parts;
 	},

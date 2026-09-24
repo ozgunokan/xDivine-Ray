@@ -53,7 +53,7 @@ import (
 )
 
 const (
-	testUUID     = "cbe82522-0000-4000-8000-000000000001"
+	testUUID     = "00000000-0000-4000-8000-000000000001"
 	testPassword = "bir-parola-yeter"
 	testBody     = "xwrt-ok"
 	testSNI      = "test.local"

@@ -1,12 +1,14 @@
 package mode
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"xwrt/internal/fault"
@@ -280,12 +282,83 @@ func uciGet(path string) (string, bool) {
 	return v, v != ""
 }
 
+// probeBudget is how long the core's resolver is given to become usable.
+//
+// It is not a timeout on one query; it is how long a freshly started core is
+// allowed to take before its DNS is declared broken. Switching capture modes
+// tears the whole connection down and starts a new core, and the step that
+// checks DNS runs seconds later — which sounds like plenty and is not, because
+// "seconds later" is measured from the moment the previous mode was dismantled,
+// not from the moment the new core finished opening its inbounds.
+const probeBudget = 20 * time.Second
+
 // probeResolver asks the core's DNS inbound for a name and waits for an answer.
+//
+// It keeps asking until the budget runs out, and this is the whole point.
+//
+// It used to try three times with no pause between them. Against a port with
+// nothing listening yet, the kernel answers a UDP write with ICMP port
+// unreachable and the read fails immediately — so all three attempts were spent
+// in under half a millisecond, measured, and the core was declared dead before
+// it had finished starting. That is the bug behind "switching from mixed to TUN
+// fails with a DNS error, and connecting again works": nothing was wrong with
+// DNS, the question was just asked too early, and pressing connect a second
+// time changed the timing enough to ask it later.
 //
 // The query is hand-built because it is twelve bytes of header and a name: a
 // DNS library for one packet on a router with 128 MB of RAM is not a trade
 // worth making.
 func probeResolver(port int) error {
+	return probeResolverWithin(port, probeBudget, time.Now, time.Sleep, probeOnce)
+}
+
+// probeResolverWithin is the testable half: the clock and the one-shot query
+// are arguments, because a test cannot start a core and should not wait twenty
+// seconds to find out that waiting works.
+func probeResolverWithin(
+	port int,
+	budget time.Duration,
+	now func() time.Time,
+	sleep func(time.Duration),
+	once func(int) error,
+) error {
+	deadline := now().Add(budget)
+	wait := 250 * time.Millisecond
+
+	// A ceiling on tries as well as on time. The loop is meant to end because
+	// the clock ran out, but a clock that does not move — a sleep that does not
+	// sleep, a coarse timer on a router that reports the same second for a
+	// while — turns "until the deadline" into forever, and this runs inside the
+	// connect path with the engine's lock held. Whichever limit is reached
+	// first ends it.
+	const maxTries = 64
+
+	var last error
+	for try := 0; try < maxTries; try++ {
+		if last = once(port); last == nil {
+			return nil
+		}
+		// A retry that would finish after the budget is not a retry, it is an
+		// overrun. Stop while the answer is still the one that was asked for.
+		if !now().Add(wait).Before(deadline) {
+			return last
+		}
+		sleep(wait)
+		if wait < 2*time.Second {
+			wait *= 2
+		}
+	}
+	return last
+}
+
+// probeOnce sends one query and reports what came back, in the words of what
+// actually happened.
+//
+// The three failures below look identical in a log line and mean entirely
+// different things, and lumping them together as "the core is not answering"
+// sent people to look at their DNS settings when the core had simply not
+// finished starting.
+func probeOnce(port int) error {
 	const name = "example.com"
 
 	msg := []byte{
@@ -300,41 +373,49 @@ func probeResolver(port int) error {
 	}
 	msg = append(msg, 0x00, 0x00, 0x01, 0x00, 0x01) // root, A, IN
 
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		c, err := net.DialTimeout("udp",
-			net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 2*time.Second)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		_ = c.SetDeadline(time.Now().Add(3 * time.Second))
-		if _, err := c.Write(msg); err != nil {
-			c.Close()
-			lastErr = err
-			continue
-		}
-		buf := make([]byte, 512)
-		n, err := c.Read(buf)
-		c.Close()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if n < 12 || buf[0] != msg[0] || buf[1] != msg[1] {
-			lastErr = fmt.Errorf("the reply did not match the query")
-			continue
-		}
-		// NOERROR or NXDOMAIN both prove a working resolver; anything else says
-		// it is there but cannot resolve, which is just as unusable.
-		switch rcode := buf[3] & 0x0f; rcode {
-		case 0, 3:
-			return nil
-		default:
-			lastErr = fmt.Errorf("the resolver answered with rcode %d", rcode)
-		}
+	c, err := net.DialTimeout("udp",
+		net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 2*time.Second)
+	if err != nil {
+		return err
 	}
-	return lastErr
+	defer c.Close()
+
+	_ = c.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := c.Write(msg); err != nil {
+		return err
+	}
+	buf := make([]byte, 512)
+	n, err := c.Read(buf)
+	if err != nil {
+		if isRefused(err) {
+			return fmt.Errorf("nothing is listening on port %d yet", port)
+		}
+		return fmt.Errorf("no answer from port %d: %w", port, err)
+	}
+	if n < 12 || buf[0] != msg[0] || buf[1] != msg[1] {
+		return fmt.Errorf("the reply did not match the query")
+	}
+	// NOERROR or NXDOMAIN both prove a working resolver; anything else says it
+	// is there but cannot resolve, which is just as unusable — and during a
+	// mode switch is usually the core briefly having no way out yet, which is
+	// exactly what the retries above are for.
+	switch rcode := buf[3] & 0x0f; rcode {
+	case 0, 3:
+		return nil
+	case 2:
+		return fmt.Errorf("the resolver is listening but could not resolve " +
+			"anything, so the core has no working path out yet")
+	default:
+		return fmt.Errorf("the resolver answered with rcode %d", rcode)
+	}
+}
+
+// isRefused reports the one error that means "not started yet" rather than
+// "broken": a UDP write to a port with no listener comes back as ICMP port
+// unreachable, which the kernel reports on the next read as a refused
+// connection.
+func isRefused(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 // Revert restores the previous resolver configuration.

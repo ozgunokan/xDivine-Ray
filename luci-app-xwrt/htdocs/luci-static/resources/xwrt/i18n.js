@@ -536,8 +536,56 @@ var TR = {
 		"TUN varsayılan rotasını tutan tablo.",
 	"below the %d MB this version targets":
 		"bu sürümün hedeflediği %d MB'ın altında",
+	"This document was not saved. %d thing(s) to fix:":
+		"Bu belge kaydedilmedi. D\u00fczeltilecek %d \u015fey var:",
+	"Saved. The running connection is unchanged until you connect again.":
+		"Kaydedildi. \u00c7al\u0131\u015fan ba\u011flant\u0131, siz yeniden ba\u011flanana kadar de\u011fi\u015fmez.",
+	"This document is valid. Nothing has been saved yet.":
+		"Bu belge ge\u00e7erli. Hen\u00fcz hi\u00e7bir \u015fey kaydedilmedi.",
+	"The daemon did not answer.":
+		"Servis yan\u0131t vermedi.",
+	"This is not valid JSON: %s":
+		"Bu ge\u00e7erli bir JSON de\u011fil: %s",
+	"Replace the whole configuration with this document?\n\nServers, groups, rules and settings are all replaced. The running tunnel is not touched until you connect again.":
+		"T\u00fcm yap\u0131land\u0131rma bu belgeyle de\u011fi\u015ftirilsin mi?\n\nSunucular, gruplar, kurallar ve ayarlar\u0131n hepsi de\u011fi\u015fir. \u00c7al\u0131\u015fan t\u00fcnele, siz yeniden ba\u011flanana kadar dokunulmaz.",
+	"Configuration as JSON":
+		"JSON olarak yap\u0131land\u0131rma",
+	"Everything this app stores, in one document: servers, groups, rules, subscriptions and settings. Edit it here, or copy it to move a configuration to another router.":
+		"Bu uygulaman\u0131n saklad\u0131\u011f\u0131 her \u015fey tek bir belgede: sunucular, gruplar, kurallar, abonelikler ve ayarlar. Buradan d\u00fczenleyebilir ya da kopyalay\u0131p ba\u015fka bir routera ta\u015f\u0131yabilirsiniz.",
+	"This document contains your server credentials in full. Treat a copy of it the way you would treat the share links themselves.":
+		"Bu belge sunucu kimlik bilgilerinizin tamam\u0131n\u0131 i\u00e7erir. Bir kopyas\u0131na, payla\u015f\u0131m linklerinin kendisine davrand\u0131\u011f\u0131n\u0131z gibi davran\u0131n.",
+	"Check":
+		"Denetle",
+	"Reload from the device":
+		"Cihazdan yeniden y\u00fckle",
+	"Check says whether the document would be accepted, without saving it. A section left out of the document is refused rather than obeyed \u2014 to empty one, give it an empty list.":
+		"Denetle, belgenin kabul edilip edilmeyece\u011fini kaydetmeden s\u00f6yler. Belgeden \u00e7\u0131kar\u0131lm\u0131\u015f bir b\u00f6l\u00fcm uygulanmaz, reddedilir \u2014 bir b\u00f6l\u00fcm\u00fc bo\u015faltmak i\u00e7in ona bo\u015f liste verin.",
+	"Refuse QUIC in redirect mode":
+		"Redirect modunda QUIC'i reddet",
+	"Redirect mode proxies TCP and lets UDP go straight out, so QUIC \u2014 which is what video sites use \u2014 bypasses the tunnel entirely. Where that direct path is filtered or slowed, the result is a video that stalls rather than an error. Refusing QUIC makes the browser fall back to TCP at once, which is proxied. This does nothing in the other three modes: they carry UDP themselves.":
+		"Redirect modu TCP'yi proxy'ler, UDP'yi do\u011frudan d\u0131\u015far\u0131 b\u0131rak\u0131r; yani video sitelerinin kulland\u0131\u011f\u0131 QUIC t\u00fcnelin tamamen d\u0131\u015f\u0131nda kal\u0131r. O do\u011frudan yol filtrelendi\u011finde ya da yava\u015flat\u0131ld\u0131\u011f\u0131nda sonu\u00e7 hata de\u011fil, donan bir video olur. QUIC reddedilirse taray\u0131c\u0131 an\u0131nda proxy'lenen TCP'ye d\u00fc\u015fer. Di\u011fer \u00fc\u00e7 modda hi\u00e7bir \u015fey yapmaz: onlar UDP'yi zaten ta\u015f\u0131r.",
+	"Kernel connection table: %d of %d (%d%%).":
+		"\u00c7ekirdek ba\u011flant\u0131 tablosu: %d / %d (%%%d).",
+	"When this fills, the kernel drops new connections until old ones time out \u2014 which looks like a video freezing for a few seconds and then carrying on. Redirect and mixed modes take a slot per client connection; TUN mode takes almost none.":
+		"Bu doldu\u011funda \u00e7ekirdek, eskiler zaman a\u015f\u0131m\u0131na u\u011frayana kadar yeni ba\u011flant\u0131lar\u0131 d\u00fc\u015f\u00fcr\u00fcr \u2014 bu da birka\u00e7 saniye donup sonra devam eden bir video gibi g\u00f6r\u00fcn\u00fcr. Redirect ve mixed modlar\u0131 her istemci ba\u011flant\u0131s\u0131 i\u00e7in bir yer kaplar; TUN modu neredeyse hi\u00e7 kaplamaz.",
+	"Raise it with:":
+		"\u015eununla y\u00fckseltin:",
+	"(add it to /etc/sysctl.conf so it survives a reboot)":
+		"(yeniden ba\u015flatmada kal\u0131c\u0131 olmas\u0131 i\u00e7in /etc/sysctl.conf dosyas\u0131na da ekleyin)",
 	"group of %d":
 		"%d üyeli grup",
+	"through":
+		"şu an geçilen:",
+	"no traffic yet, so no member has been used":
+		"henüz trafik yok, bu yüzden hiçbir üye kullanılmadı",
+	"Servers in this group":
+		"Bu gruptaki sunucular",
+	"Server":
+		"Sunucu",
+	"Now":
+		"Şu an",
+	"in use":
+		"kullanımda",
 	"%s failed":
 		"%s başarısız oldu",
 	"Open the log":

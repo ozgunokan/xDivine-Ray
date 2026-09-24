@@ -47,7 +47,8 @@
 					"sub_refresh",
 					"sub_del",
 					"update_check",
-					"update_install"
+					"update_install",
+					"put_config"
 				]
 			},
 			"uci": [ "xwrt" ]

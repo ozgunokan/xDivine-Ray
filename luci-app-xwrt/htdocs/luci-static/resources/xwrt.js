@@ -17,6 +17,9 @@
 var callStatus = rpc.declare({ object: 'xwrt', method: 'status' });
 var callEnv = rpc.declare({ object: 'xwrt', method: 'env' });
 var callConfig = rpc.declare({ object: 'xwrt', method: 'config' });
+var callPutConfig = rpc.declare({
+	object: 'xwrt', method: 'put_config', params: [ 'config', 'check' ]
+});
 
 // The log call returns { entries, last_error } rather than a bare array, so
 // that a view showing both does not need a second round trip. The filters are
@@ -140,6 +143,17 @@ var TABLE_CSS = [
 	'  font-weight: 600; opacity: .7; white-space: nowrap; }',
 	'.xwrt-table > .tr > .td.cbi-section-actions,',
 	'.xwrt-table > .tr > .th.cbi-section-actions { text-align: right; white-space: nowrap; }',
+	// The buttons at the end of a row sit in a wrapper of their own; see
+	// rowActions below for why. This lays them out for themes that have no
+	// opinion about it.
+	'.xwrt-rowactions {',
+	'  display: flex; flex-wrap: nowrap; gap: .3em;',
+	'  justify-content: flex-end; align-items: center; }',
+	// luci-theme-bootstrap gives everything inside an actions cell
+	// `flex: 1 1 4em`, which stretches five buttons to fill a cell the same
+	// theme has declared to be 15% of the table: equal widths, squashed, labels
+	// wrapping. Each button is as wide as its own label here.
+	'.xwrt-rowactions > * { flex: 0 0 auto !important; margin: 0 !important; }',
 	// The empty-table message, which xwrt.scroll lifts out of the table
 	// altogether: as a row it was laid out in the first column and wrapped into
 	// a ribbon of single words — `display: block` does not save it, because a
@@ -175,6 +189,11 @@ var TABLE_CSS = [
 	// The rows set nowrap inline so the buttons stay on one line on a desktop.
 	'    white-space: normal !important; }',
 	'  .xwrt-cards > .tr > .td.cbi-section-actions > .cbi-button { margin: 0; }',
+	// On a phone there is no room for five buttons in a line, so the wrapper
+	// that keeps them in one on a desktop has to give way here.
+	'  .xwrt-cards > .tr > .td.cbi-section-actions > .xwrt-rowactions {',
+	'    flex-wrap: wrap !important; justify-content: flex-start;',
+	'    width: 100%; }',
 
 	// A control wider than the screen scrolls the page just as a table does, and
 	// it only happens with real data: a profile name from a subscription, a
@@ -255,6 +274,7 @@ return baseclass.extend({
 	status: callStatus,
 	env: callEnv,
 	config: callConfig,
+	putConfig: callPutConfig,
 	logs: callLogs,
 	errors: callErrors,
 	clearError: callClearError,
@@ -292,6 +312,32 @@ return baseclass.extend({
 	// another view already added one.
 	style: function() {
 		return E('style', { 'type': 'text/css' }, TABLE_CSS);
+	},
+
+	// rowActions builds the last cell of a table row: the buttons that act on
+	// that row.
+	//
+	// The buttons go inside a wrapper rather than straight into the cell, and
+	// that wrapper is the whole reason this function exists. LuCI's own
+	// generated forms put exactly one element in an actions cell, and at least
+	// one theme in wide use — luci-theme-bootstrap, which is what DivineWRT
+	// ships — is written against that:
+	//
+	//     .td.cbi-section-actions > * { display: flex; }
+	//
+	// It expects to be turning a single wrapper into a row of buttons. Handed
+	// five buttons directly, it turns each one into a block-level flex
+	// container instead, and block-level boxes stack. The Servers page came out
+	// as a column of five buttons per row, every row 118 pixels tall, on that
+	// theme and no other — the kind of bug that gets reported as "it looks fine
+	// in the other theme" and is invisible to whoever does not use it.
+	//
+	// Written out at each call site, a wrapper is something the next table
+	// forgets. Here it cannot be, and mobile.js measures the result against the
+	// real theme rules, quoted from its stylesheet.
+	rowActions: function(buttons) {
+		return E('div', { 'class': 'td cbi-section-actions' },
+			E('div', { 'class': 'xwrt-rowactions' }, buttons));
 	},
 
 	// scroll prepares a table for a screen narrower than it is.

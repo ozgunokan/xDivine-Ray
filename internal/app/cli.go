@@ -40,6 +40,22 @@ func RunCLI(argv []string) int {
 	case "env":
 		err = get("/api/env")
 	case "config":
+		// `xwrt config` prints it; `xwrt config apply -` replaces it from
+		// stdin. Two words rather than a flag, because one of them can empty
+		// the device and should not be a keystroke away from the one that
+		// only looks.
+		if len(args) > 0 && (args[0] == "apply" || args[0] == "check") {
+			path := "/api/config"
+			if args[0] == "check" {
+				path += "?check=1"
+			}
+			var b []byte
+			if b, err = io.ReadAll(os.Stdin); err != nil {
+				break
+			}
+			err = putRaw(path, b)
+			break
+		}
 		err = get("/api/config")
 	case "list", "profiles":
 		err = get("/api/profiles")
@@ -386,6 +402,39 @@ func post(path string, body any) error {
 	return request(http.MethodPost, path, body)
 }
 
+// putRaw sends a body that is already JSON, byte for byte.
+//
+// Everything else here marshals a Go value, which would mean decoding the
+// operator's document and re-encoding it — and a round trip through a parser
+// is exactly what someone editing a file by hand does not want between their
+// text and the error message about it. The line number in the reply then
+// refers to the file they are looking at.
+func putRaw(path string, body []byte) error {
+	req, err := http.NewRequest(http.MethodPut, "http://"+apiAddr()+path,
+		bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("the daemon is not answering on %s: %w", apiAddr(), err)
+	}
+	defer resp.Body.Close()
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	os.Stdout.Write(out)
+	if len(out) > 0 && out[len(out)-1] != '\n' {
+		fmt.Println()
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("the configuration was not saved")
+	}
+	return nil
+}
+
 func request(method, path string, body any) error {
 	out, err := fetch(method, path, body)
 	if err != nil {
@@ -482,6 +531,9 @@ func usage() {
                                  (defaults to the stored selection)
   xwrt disconnect                disconnect and remove all rules
   xwrt reapply-fw                reinstall capture rules after a firewall reload
+  xwrt config                    print the whole configuration as JSON
+  xwrt config check < file.json  say whether that document would be accepted
+  xwrt config apply < file.json  replace the configuration with it
   xwrt update                    ask whether a newer release exists
   xwrt update install            download it, verify it and install it
 
