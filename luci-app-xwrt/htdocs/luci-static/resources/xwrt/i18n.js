@@ -184,6 +184,17 @@ var TR = {
 		"Sunucunun düştüğünü yalnızca yedeklemeli stratejiler fark eder. Rastgele ve sırayla seçenekleri, ölü bir sunucuya bağlantı göndermeyi sürdürür.",
 	"Health check":
 		"Sağlık yoklaması",
+	"Health check address":
+		"Yoklama adresi",
+	"The check is sent through each member's own server, not out of the router directly, so a device with no internet except the tunnel can still run it. Leave empty for the default. Pick something that answers from everywhere your servers are: one that does not answer makes every member look equally dead.":
+		"Yoklama, cihazın normal çıkışından değil, her üyenin kendi sunucusunun " +
+		"üzerinden gönderilir; tünel dışında internete çıkamayan bir cihazda da " +
+		"çalışır. Boş bırakırsanız varsayılan kullanılır. Sunucularınızın " +
+		"bulunduğu her yerden cevap veren bir adres seçin: cevap vermeyen bir " +
+		"adres bütün üyeleri eşit ölçüde ölü gösterir.",
+	"The health check address has to start with http:// or https:// and name a host, like %s.":
+		"Yoklama adresi http:// veya https:// ile başlamalı ve bir adres " +
+		"içermeli; örneğin %s.",
 	"every 30 seconds":
 		"30 saniyede bir",
 	"every minute (recommended)":
@@ -470,8 +481,6 @@ var TR = {
 		"Yönlendiricinin DNS yapılandırması olduğu gibi kalır. Kendi çözümleyicinizi (AdGuard, Unbound, DoH) kurduysanız ve onun tünelden çıktığından eminseniz doğru seçim budur.",
 	"Upstream DNS server":
 		"Üst DNS sunucusu",
-	"Queries are sent here over TCP through the proxy.":
-		"Sorgular proxy üzerinden TCP ile buraya gönderilir.",
 	"DNS inbound port":
 		"DNS giriş portu",
 	"Exempt networks":
@@ -560,10 +569,6 @@ var TR = {
 		"Cihazdan yeniden y\u00fckle",
 	"Check says whether the document would be accepted, without saving it. A section left out of the document is refused rather than obeyed \u2014 to empty one, give it an empty list.":
 		"Denetle, belgenin kabul edilip edilmeyece\u011fini kaydetmeden s\u00f6yler. Belgeden \u00e7\u0131kar\u0131lm\u0131\u015f bir b\u00f6l\u00fcm uygulanmaz, reddedilir \u2014 bir b\u00f6l\u00fcm\u00fc bo\u015faltmak i\u00e7in ona bo\u015f liste verin.",
-	"Refuse QUIC in redirect mode":
-		"Redirect modunda QUIC'i reddet",
-	"Redirect mode proxies TCP and lets UDP go straight out, so QUIC \u2014 which is what video sites use \u2014 bypasses the tunnel entirely. Where that direct path is filtered or slowed, the result is a video that stalls rather than an error. Refusing QUIC makes the browser fall back to TCP at once, which is proxied. This does nothing in the other three modes: they carry UDP themselves.":
-		"Redirect modu TCP'yi proxy'ler, UDP'yi do\u011frudan d\u0131\u015far\u0131 b\u0131rak\u0131r; yani video sitelerinin kulland\u0131\u011f\u0131 QUIC t\u00fcnelin tamamen d\u0131\u015f\u0131nda kal\u0131r. O do\u011frudan yol filtrelendi\u011finde ya da yava\u015flat\u0131ld\u0131\u011f\u0131nda sonu\u00e7 hata de\u011fil, donan bir video olur. QUIC reddedilirse taray\u0131c\u0131 an\u0131nda proxy'lenen TCP'ye d\u00fc\u015fer. Di\u011fer \u00fc\u00e7 modda hi\u00e7bir \u015fey yapmaz: onlar UDP'yi zaten ta\u015f\u0131r.",
 	"Kernel connection table: %d of %d (%d%%).":
 		"\u00c7ekirdek ba\u011flant\u0131 tablosu: %d / %d (%%%d).",
 	"When this fills, the kernel drops new connections until old ones time out \u2014 which looks like a video freezing for a few seconds and then carrying on. Redirect and mixed modes take a slot per client connection; TUN mode takes almost none.":
@@ -572,6 +577,22 @@ var TR = {
 		"\u015eununla y\u00fckseltin:",
 	"(add it to /etc/sysctl.conf so it survives a reboot)":
 		"(yeniden ba\u015flatmada kal\u0131c\u0131 olmas\u0131 i\u00e7in /etc/sysctl.conf dosyas\u0131na da ekleyin)",
+	"Refuse QUIC":
+		"QUIC'i reddet",
+	"Redirect mode proxies TCP and lets UDP go straight out, so QUIC \u2014 which is what video sites use \u2014 bypasses the tunnel entirely. Where that direct path is filtered or slowed, the result is a video that stalls rather than an error. Refusing QUIC makes the browser fall back to TCP at once, which is proxied.":
+		"Redirect modu TCP'yi proxy'ler, UDP'yi do\u011frudan d\u0131\u015far\u0131 b\u0131rak\u0131r; yani video sitelerinin kulland\u0131\u011f\u0131 QUIC t\u00fcnelin tamamen d\u0131\u015f\u0131nda kal\u0131r. O do\u011frudan yol filtrelendi\u011finde ya da yava\u015flat\u0131ld\u0131\u011f\u0131nda sonu\u00e7 hata de\u011fil, donan bir video olur. QUIC reddedilirse taray\u0131c\u0131 an\u0131nda proxy'lenen TCP'ye d\u00fc\u015fer.",
+	"A bare address is queried over TCP through the tunnel. A URL is used as written, so https://\u2026 is DNS over HTTPS \u2014 steadier, and it does not fill the log with connection-reset errors.":
+		"D\u00fcz bir adres, t\u00fcnel \u00fczerinden TCP ile sorgulan\u0131r. URL ise oldu\u011fu gibi kullan\u0131l\u0131r; yani https://\u2026 DNS over HTTPS demektir \u2014 daha kararl\u0131d\u0131r ve g\u00fcnl\u00fc\u011f\u00fc ba\u011flant\u0131 kopma hatalar\u0131yla doldurmaz.",
+	"1.1.1.1 \u2014 Cloudflare, over TCP":
+		"1.1.1.1 \u2014 Cloudflare, TCP \u00fczerinden",
+	"Cloudflare, over HTTPS (DoH)":
+		"Cloudflare, HTTPS \u00fczerinden (DoH)",
+	"8.8.8.8 \u2014 Google, over TCP":
+		"8.8.8.8 \u2014 Google, TCP \u00fczerinden",
+	"Google, over HTTPS (DoH)":
+		"Google, HTTPS \u00fczerinden (DoH)",
+	"Enter an address, a hostname, or a URL such as https://1.1.1.1/dns-query":
+		"Bir adres, bir alan ad\u0131 ya da https://1.1.1.1/dns-query gibi bir URL girin",
 	"group of %d":
 		"%d üyeli grup",
 	"through":

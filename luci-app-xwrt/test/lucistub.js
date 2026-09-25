@@ -34,6 +34,17 @@ var CANVAS_2D = new Proxy({}, {
 // A DOM element that is close enough to the real one for the code under test
 // to treat it as ordinary: class names, attributes, children and textContent.
 function El(tag, attrs, children) {
+	// LuCI's E takes attributes or content in the second position and tells
+	// them apart by type, so `E('p', 'hello')` is a paragraph with text in it.
+	// Reading that string as an attribute map turned every such call into an
+	// empty element here — silently, because an empty element still renders —
+	// and every check that looked for the words inside one was passing on
+	// nothing at all.
+	if (attrs !== null && attrs !== undefined &&
+		(typeof attrs !== 'object' || Array.isArray(attrs))) {
+		children = attrs;
+		attrs = null;
+	}
 	var node = {
 		tagName: String(tag).toUpperCase(),
 		className: '',
@@ -51,6 +62,15 @@ function El(tag, attrs, children) {
 			return k === 'class' ? node.className : (node.attributes[k] ?? null);
 		},
 		setAttribute: function(k, v) {
+			// A browser has no way to set an attribute to null: code that
+			// writes `'checked': wanted ? '' : null` means "not present".
+			// Storing the string "null" made every checkbox in every dialog
+			// look ticked, which is the kind of stub bug that turns a test
+			// into decoration.
+			if (v === null || v === undefined) {
+				delete node.attributes[k];
+				return;
+			}
 			if (k === 'class') node.className = String(v);
 			else node.attributes[k] = String(v);
 			// Registered by id, so document.getElementById can find it. The
@@ -74,8 +94,27 @@ function El(tag, attrs, children) {
 			if (c && c.parentNode === node) c.parentNode = null;
 			return c;
 		},
-		addEventListener: function() {},
-		removeEventListener: function() {},
+		addEventListener: function(ev, fn) {
+			(node.listeners[ev] = node.listeners[ev] || []).push(fn);
+		},
+		removeEventListener: function(ev, fn) {
+			var l = node.listeners[ev] || [];
+			var i = l.indexOf(fn);
+			if (i >= 0) l.splice(i, 1);
+		},
+		// Handlers are kept and can be fired. LuCI turns a function-valued
+		// attribute into a listener, so `E('button', { click: fn })` is a
+		// button that does something — and a stub that throws the function
+		// away leaves every dialog's Save button inert, which is how a button
+		// wired to the wrong field passes a rendering check.
+		listeners: {},
+		click: function() {
+			var out;
+			(node.listeners['click'] || []).forEach(function(fn) {
+				out = fn.call(node, { type: 'click', target: node });
+			});
+			return out;
+		},
 		getBoundingClientRect: function() { return { width: 600, height: 200 }; },
 		getContext: function() { return CANVAS_2D; },
 
@@ -99,6 +138,53 @@ function El(tag, attrs, children) {
 			})(node);
 			return found;
 		},
+
+		// Every node that carries a value in a form. Dialogs are written the
+		// way the browser works — build an input, read `.value` back when the
+		// button is pressed — and a stub without this reads undefined out of
+		// every field, so the entire save path of every dialog was untestable
+		// and the checks stopped at "the dialog opened".
+		querySelectorAll: function(sel) {
+			var m = String(sel).trim()
+				.match(/^([a-zA-Z*]*)(?:\[([^=\]]+)(?:=([^\]]+))?\])?$/);
+			if (!m) return [];
+			var tag = m[1] && m[1] !== '*' ? m[1].toUpperCase() : null;
+			var attr = m[2] || null;
+			var val = m[3] ? m[3].replace(/^["']|["']$/g, '') : null;
+			var out = [];
+			(function search(n) {
+				(n.children || []).forEach(function(c) {
+					if (typeof c === 'string') return;
+					var hit = (!tag || c.tagName === tag) &&
+						(!attr || (val === null
+							? c.getAttribute(attr) !== null
+							: c.getAttribute(attr) === val));
+					if (hit) out.push(c);
+					search(c);
+				});
+			})(node);
+			return out;
+		},
+
+		// A select with nothing assigned to it shows its first option, and
+		// code that reads `.value` straight after building one gets that
+		// option back. Returning '' here instead would let a dialog save an
+		// empty strategy in the harness while saving the right one in a
+		// browser.
+		get value() {
+			if (node.attributes.value !== undefined) return node.attributes.value;
+			if (node.tagName === 'SELECT') {
+				for (var i = 0; i < node.children.length; i++) {
+					var c = node.children[i];
+					if (c && c.tagName === 'OPTION') return c.value;
+				}
+			}
+			return '';
+		},
+		set value(v) { node.setAttribute('value', v); },
+
+		get checked() { return node.attributes.checked !== undefined; },
+		set checked(v) { node.setAttribute('checked', v ? '' : null); },
 
 		get textContent() {
 			return node.texts.join('') + node.children.map(function(c) {
@@ -127,8 +213,8 @@ function El(tag, attrs, children) {
 	}
 
 	Object.keys(attrs || {}).forEach(function(k) {
-		if (typeof attrs[k] !== 'function')
-			node.setAttribute(k, attrs[k]);
+		if (typeof attrs[k] === 'function') node.addEventListener(k, attrs[k]);
+		else node.setAttribute(k, attrs[k]);
 	});
 	add(children);
 	return node;
@@ -164,7 +250,18 @@ function stubLuCI() {
 		add: function(fn, interval) { global.POLLS.push({ fn: fn, every: interval }); }
 	};
 	global.ui = {
-		createHandlerFn: function() { return function() {}; },
+		// The real one returns a function that calls the handler with the view
+		// as `this`. A stub that returns a no-op means every button in every
+		// dialog does nothing here, and "the Save button exists" passes on a
+		// Save button wired to the wrong field.
+		createHandlerFn: function(ctx, fn) {
+			var bound = (typeof fn === 'string') ? ctx[fn] : fn;
+			var extra = Array.prototype.slice.call(arguments, 2);
+			return function() {
+				return bound.apply(ctx,
+					extra.concat(Array.prototype.slice.call(arguments)));
+			};
+		},
 		showModal: function(title, children) {
 			global.MODALS.push({ title: title, body: El('div', {}, children) });
 		},

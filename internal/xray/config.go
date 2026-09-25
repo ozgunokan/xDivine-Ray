@@ -1081,6 +1081,22 @@ func sniffingFor(s *model.Settings) *Sniffing {
 //
 // An address the operator spelled out (tcp://, https://, quic://, or one with a
 // port) is left exactly as written.
+// A bare address becomes DNS over TCP. A URL is used exactly as written, which
+// is how DNS over HTTPS is reached — and DoH is worth knowing about here,
+// because plain TCP is what produces the core's
+//
+//	app/dns: failed to read response length > EOF
+//
+// A DNS-over-TCP connection is pooled and the far end closes it when it goes
+// idle; the next query on that dead connection ends before even the two-byte
+// length prefix arrives. The query is retried, so names still resolve — but
+// every occurrence is an error in the log and a round trip added to whatever
+// was waiting on it. DoH carries the same queries over HTTP/2, which manages
+// its own connections, and does not do this.
+//
+// The default stays TCP, because it works against any resolver, and a resolver
+// someone typed in may have no DoH endpoint at all. The Settings field offers
+// both and explains the difference.
 func upstreamDNS(addr string) string {
 	v := strings.TrimSpace(addr)
 	if v == "" {

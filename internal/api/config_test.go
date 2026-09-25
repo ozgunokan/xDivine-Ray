@@ -210,3 +210,41 @@ func TestAnEmptyBodyIsNotAnEmptyConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestAHealthCheckAddressTheCoreCannotUseIsCaught(t *testing.T) {
+	// The JSON editor is the other door into this field, and the browser's
+	// check does not guard it. A bad address here breaks nothing visibly: the
+	// tunnel comes up and the group silently stops ranking its members.
+	doc := goodDoc(t)
+	doc["groups"] = []any{map[string]any{
+		"id": "g1", "name": "avrupa", "strategy": "leastPing",
+		"members": []any{"p1"}, "probe_url": "cp.cloudflare.com",
+	}}
+
+	_, problems := parseConfig(encode(t, doc), liveConfig())
+	if len(problems) == 0 {
+		t.Fatal("a group with an unusable health check address was accepted")
+	}
+	if joined := strings.Join(problems, " | "); !strings.Contains(joined, "cp.cloudflare.com") {
+		t.Errorf("the problem does not quote the address: %q", joined)
+	}
+}
+
+func TestAWrittenOutHealthCheckAddressSurvives(t *testing.T) {
+	// And the other half: a good one has to actually reach the config, not be
+	// dropped on the way through and replaced by the default.
+	doc := goodDoc(t)
+	doc["groups"] = []any{map[string]any{
+		"id": "g1", "name": "avrupa", "strategy": "leastPing",
+		"members": []any{"p1"},
+		"probe_url": "https://cp.cloudflare.com/generate_204",
+	}}
+
+	data, problems := parseConfig(encode(t, doc), liveConfig())
+	if len(problems) != 0 {
+		t.Fatalf("a usable address was refused: %v", problems)
+	}
+	if got := data.Groups[0].ProbeURL; got != "https://cp.cloudflare.com/generate_204" {
+		t.Errorf("the address was stored as %q", got)
+	}
+}

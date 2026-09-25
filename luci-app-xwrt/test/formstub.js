@@ -67,7 +67,12 @@ function install(opts) {
 		DynamicList: 'DynamicList', DummyValue: 'DummyValue',
 		Button: 'Button', TextValue: 'TextValue'
 	};
-	global.uci = { load: function() { return Promise.resolve(); } };
+	// The settings page reads the saved mode to decide which options exist
+	// at all, so the stub has to be able to answer for it.
+	global.uci = {
+		load: function() { return Promise.resolve(); },
+		get: function(cfg, sec, opt) { return (opts.uci || {})[opt]; }
+	};
 
 	// What the box has, as LuCI would report it — including the loopback and a
 	// tunnel device, because leaving those out of the offer is part of what the

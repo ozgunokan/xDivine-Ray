@@ -95,13 +95,23 @@ return view.extend({
 		o.value('tun', _('TUN — everything through the tunnel'));
 		o.default = 'mixed';
 
-		// Only redirect mode can act on this, and the field says so rather
-		// than being hidden: someone comparing modes should be able to see
-		// that the sharp edge of redirect has a switch attached to it.
-		o = s.taboption('general', form.Flag, 'block_quic', _('Refuse QUIC in redirect mode'),
-			_('Redirect mode proxies TCP and lets UDP go straight out, so QUIC — which is what video sites use — bypasses the tunnel entirely. Where that direct path is filtered or slowed, the result is a video that stalls rather than an error. Refusing QUIC makes the browser fall back to TCP at once, which is proxied. This does nothing in the other three modes: they carry UDP themselves.'));
-		o.default = '1';
-		o.depends('mode', 'redirect');
+		// Only redirect mode can act on this, so it is only built in redirect
+		// mode — rather than being declared always and hidden by LuCI's own
+		// `depends`, which is how it was written first and which showed the
+		// field in every mode on the build it was reported from. There is no
+		// way to reproduce that here, so the safe thing is not to rely on it:
+		// an option that is never created cannot be shown by anybody's form
+		// machinery.
+		//
+		// The cost is that switching the mode reveals this only after saving,
+		// since the page builds itself from the saved value. That is a smaller
+		// surprise than a setting which claims to be about redirect mode while
+		// sitting on a page where redirect is not selected.
+		if ((uci.get('xwrt', 'main', 'mode') || 'mixed') === 'redirect') {
+			o = s.taboption('general', form.Flag, 'block_quic', _('Refuse QUIC'),
+				_('Redirect mode proxies TCP and lets UDP go straight out, so QUIC — which is what video sites use — bypasses the tunnel entirely. Where that direct path is filtered or slowed, the result is a video that stalls rather than an error. Refusing QUIC makes the browser fall back to TCP at once, which is proxied.'));
+			o.default = '1';
+		}
 
 		o = s.taboption('general', form.Flag, 'proxy_router', _('Proxy the router\'s own traffic as well'),
 			_('Capture not only forwarded LAN traffic but what the router itself produces. With this on, the device\'s own business — package updates, the DDNS client, NTP — goes through the tunnel too: sometimes that is the point, and sometimes it is how you lose remote access.'));
@@ -158,10 +168,31 @@ return view.extend({
 				'</p></div>';
 		};
 
+		// A plain address, or a URL. Both are accepted because the transport
+		// matters here and the field used to hide it: an address alone becomes
+		// DNS over TCP, which is what the core logs "failed to read response
+		// length > EOF" about when the far end closes a pooled connection
+		// between queries. The query is retried and resolution still works, but
+		// the log fills with errors and each retry costs a round trip.
+		//
+		// DNS over HTTPS to the same address has no such problem — it is
+		// carried over HTTP/2, which manages its own connections. It could not
+		// even be typed here before, because the field insisted on a bare host.
 		o = s.taboption('dns', form.Value, 'dns', _('Upstream DNS server'),
-			_('Queries are sent here over TCP through the proxy.'));
+			_('A bare address is queried over TCP through the tunnel. A URL is used as written, so https://… is DNS over HTTPS — steadier, and it does not fill the log with connection-reset errors.'));
 		o.default = '1.1.1.1';
-		o.datatype = 'host';
+		o.value('1.1.1.1', _('1.1.1.1 — Cloudflare, over TCP'));
+		o.value('https://1.1.1.1/dns-query', _('Cloudflare, over HTTPS (DoH)'));
+		o.value('8.8.8.8', _('8.8.8.8 — Google, over TCP'));
+		o.value('https://dns.google/dns-query', _('Google, over HTTPS (DoH)'));
+		o.validate = function(section, value) {
+			if (!value || /^[a-z0-9+]+:\/\//i.test(value))
+				return true;
+			// Not a URL, so it has to be an address or a name.
+			if (/^[A-Za-z0-9.:_-]+$/.test(value))
+				return true;
+			return _('Enter an address, a hostname, or a URL such as https://1.1.1.1/dns-query');
+		};
 
 		o = s.taboption('dns', form.Value, 'dns_port', _('DNS inbound port'));
 		o.datatype = 'port';

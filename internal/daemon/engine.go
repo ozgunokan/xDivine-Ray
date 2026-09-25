@@ -85,12 +85,24 @@ type Engine struct {
 	// them moved between the last two readings. A balancer never announces its
 	// choice — but a counter that grows belongs to a member it chose, and that
 	// is the only evidence there is.
-	memberBytes  map[string]tagTraffic
-	memberMoving map[string]bool
+	memberBytes map[string]tagTraffic
+	// When each member's counters last grew. "In use right now" is answered
+	// from this rather than from the single most recent pair of readings: a
+	// member that happens to move nothing in one two-second window has not
+	// stopped being the server the traffic is going through, and treating it
+	// as though it had made the name on the Status page blink in and out.
+	memberLastMove map[string]time.Time
 
 	// When the connection table was last reported as nearly full.
 	conntrackWarnedAt time.Time
 }
+
+// memberLiveWindow is how long a member stays "in use" after its last byte.
+//
+// Long enough that an idle moment in a video, or a gap between requests, does
+// not erase the answer; short enough that a balancer moving to another server
+// is visible within half a minute.
+const memberLiveWindow = 30 * time.Second
 
 // conntrackWarnEvery is how often that warning may repeat.
 const conntrackWarnEvery = 10 * time.Minute
@@ -207,15 +219,82 @@ func (e *Engine) Connect(targetID string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	// What is working right now, read before connectLocked tears it down.
+	was := e.activeTargetLocked()
+
 	if err := e.connectLocked(targetID); err != nil {
 		e.record(err)
 		e.teardownLocked()
+		e.fallBackLocked(was, targetID)
 		return err
 	}
 	// Only a connect that got all the way through clears the banner; a failed
 	// one has just filed a fresh error.
 	e.Log.ClearLastError()
 	return nil
+}
+
+// activeTargetLocked names what is connected, or "" for nothing.
+func (e *Engine) activeTargetLocked() string {
+	if !e.connected {
+		return ""
+	}
+	if e.group != nil {
+		return e.group.ID
+	}
+	if e.profile != nil {
+		return e.profile.ID
+	}
+	return ""
+}
+
+// fallBackLocked puts the previous target back after a switch that failed.
+//
+// Switching servers is teardown-then-start, so a start that fails leaves the
+// device with no tunnel, no capture rules and a connection that was working
+// thirty seconds ago thrown away — over a server the operator was only trying
+// out. On a router whose only way out is the tunnel that is not a failed
+// switch, it is an outage, and the operator finds out by losing the page they
+// were clicking on.
+//
+// The failure is still reported: the error that caused it has already been
+// filed and is not cleared here. What changes is what the device is left in.
+//
+// Only a switch is undone. Reconnecting to the same target and failing means
+// that target does not work at the moment, and immediately trying it again
+// would be the same attempt with the same outcome.
+func (e *Engine) fallBackLocked(was, attempted string) {
+	if !shouldFallBack(was, attempted) {
+		return
+	}
+	e.Log.Warnf("could not switch to %s, so putting the previous connection "+
+		"back", attempted)
+
+	// connectLocked, not Connect: one level of falling back is the whole
+	// feature, and a chain of them would be a device trying targets by itself.
+	if err := e.connectLocked(was); err != nil {
+		e.record(err)
+		e.teardownLocked()
+		e.Log.Warnf("the previous connection could not be restored either; "+
+			"the device is not connected to anything")
+		return
+	}
+	e.Log.Warnf("still connected to the previous server; the switch to %s "+
+		"did not happen, and the error above says why", attempted)
+}
+
+// shouldFallBack decides whether there is a previous connection worth putting
+// back, given what was connected and what the failed attempt was for.
+func shouldFallBack(was, attempted string) bool {
+	// Nothing was connected: there is nothing to go back to, and connecting to
+	// the target that just failed would be the same attempt again.
+	if was == "" {
+		return false
+	}
+	// A reconnect to what is already selected. It failed; repeating it now
+	// fails the same way, and the second failure would overwrite the first
+	// error with a copy of itself.
+	return was != attempted
 }
 
 func (e *Engine) connectLocked(targetID string) error {
@@ -987,17 +1066,18 @@ func (e *Engine) startStatsLocked() {
 				// grew belongs to a member the balancer actually chose; one
 				// that stood still belongs to a member it did not, whatever
 				// the strategy says it would do.
+				now := time.Now()
 				if len(e.memberBytes) > 0 {
-					moving := map[string]bool{}
+					if e.memberLastMove == nil {
+						e.memberLastMove = map[string]time.Time{}
+					}
 					for tag, t := range perTag {
 						if t.total() > e.memberBytes[tag].total() {
-							moving[tag] = true
+							e.memberLastMove[tag] = now
 						}
 					}
-					e.memberMoving = moving
 				}
 				e.memberBytes = perTag
-				now := time.Now()
 				e.checkConntrackLocked(now)
 				if !e.prevAt.IsZero() {
 					if secs := now.Sub(e.prevAt).Seconds(); secs > 0 {
@@ -1147,6 +1227,11 @@ func (e *Engine) checkConntrackLocked(now time.Time) {
 // and e.members is that same list. Nothing else connects a counter to a server,
 // which is why both ends are built from one order rather than matched by name.
 func (e *Engine) memberUsageLocked() ([]model.MemberUsage, []string) {
+	return e.memberUsageAt(time.Now())
+}
+
+// memberUsageAt is the testable half; the window is measured from now.
+func (e *Engine) memberUsageAt(now time.Time) ([]model.MemberUsage, []string) {
 	if e.group == nil || len(e.members) == 0 {
 		return nil, nil
 	}
@@ -1160,7 +1245,7 @@ func (e *Engine) memberUsageLocked() ([]model.MemberUsage, []string) {
 			Name:      e.members[i].Label(),
 			Uplink:    t.Up,
 			Downlink:  t.Down,
-			Live:      e.memberMoving[tag],
+			Live:      e.liveAt(tag, now),
 		}
 		if u.Live {
 			live = append(live, u.Name)
@@ -1168,6 +1253,16 @@ func (e *Engine) memberUsageLocked() ([]model.MemberUsage, []string) {
 		usage = append(usage, u)
 	}
 	return usage, live
+}
+
+// liveAt reports whether this member has carried anything recently enough to
+// call it the one in use.
+func (e *Engine) liveAt(tag string, now time.Time) bool {
+	last, ok := e.memberLastMove[tag]
+	if !ok || last.IsZero() {
+		return false
+	}
+	return now.Sub(last) < memberLiveWindow
 }
 
 // tagTraffic is what one outbound has carried.

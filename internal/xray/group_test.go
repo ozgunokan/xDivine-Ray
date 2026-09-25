@@ -208,3 +208,43 @@ func indexOf(h, n string) int {
 	}
 	return -1
 }
+
+// TestAChosenProbeURLReachesTheCore guards the whole length of the field.
+//
+// Every layer between the dialog and the core copies this string, and a layer
+// that drops it fails silently: Normalize puts the default back, the config is
+// valid, the tunnel works, and the setting someone deliberately changed simply
+// has no effect. Nothing anywhere says so.
+func TestAChosenProbeURLReachesTheCore(t *testing.T) {
+	const chosen = "https://cp.cloudflare.com/generate_204"
+
+	g := groupWith(model.StrategyLeastPing)
+	g.ProbeURL = chosen
+	s := model.Defaults()
+	cfg, err := Build(Options{Group: g, Members: members(2), Settings: &s, Caps: AllFeatures()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if cfg.Observatory == nil {
+		t.Fatal("no observatory, so leastPing has nothing to rank with")
+	}
+	if cfg.Observatory.ProbeURL != chosen {
+		t.Errorf("probe URL = %q, want the one that was chosen (%q)",
+			cfg.Observatory.ProbeURL, chosen)
+	}
+
+	// leastLoad reads it from a different field of a different structure, so
+	// one of the two can be wired up and the other left on the default.
+	g2 := groupWith(model.StrategyLeastLoad)
+	g2.ProbeURL = chosen
+	cfg2, err := Build(Options{Group: g2, Members: members(2), Settings: &s, Caps: AllFeatures()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if cfg2.BurstObservatory == nil || cfg2.BurstObservatory.PingConfig == nil {
+		t.Fatal("no burst observatory, so leastLoad has nothing to rank with")
+	}
+	if got := cfg2.BurstObservatory.PingConfig.Destination; got != chosen {
+		t.Errorf("burst probe destination = %q, want %q", got, chosen)
+	}
+}

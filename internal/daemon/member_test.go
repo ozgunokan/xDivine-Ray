@@ -2,10 +2,22 @@ package daemon
 
 import (
 	"testing"
+	"time"
 
 	"xwrt/internal/model"
 	"xwrt/internal/xray"
 )
+
+// t0 is the moment every test in this file measures from.
+var t0 = time.Unix(1700000000, 0)
+
+// moved marks a member as having carried bytes ago seconds before t0.
+func moved(e *Engine, i int, ago time.Duration) {
+	if e.memberLastMove == nil {
+		e.memberLastMove = map[string]time.Time{}
+	}
+	e.memberLastMove[tag(i)] = t0.Add(-ago)
+}
 
 // Which server in a group is actually being used.
 //
@@ -39,7 +51,7 @@ func TestMemberUsageIsPairedByPosition(t *testing.T) {
 		tag(2): {Up: 5, Down: 7},
 	}
 
-	usage, _ := e.memberUsageLocked()
+	usage, _ := e.memberUsageAt(t0)
 	if len(usage) != 3 {
 		t.Fatalf("%d members reported, want 3", len(usage))
 	}
@@ -67,9 +79,9 @@ func TestOnlyMovingMembersAreCalledLive(t *testing.T) {
 	}
 	// The second has carried far more in total and is not moving now. Totals
 	// are history; the question is which one is in use.
-	e.memberMoving = map[string]bool{tag(0): true}
+	moved(e, 0, time.Second)
 
-	usage, live := e.memberUsageLocked()
+	usage, live := e.memberUsageAt(t0)
 	if !usage[0].Live || usage[1].Live {
 		t.Errorf("live flags = %v/%v, want true/false", usage[0].Live, usage[1].Live)
 	}
@@ -83,9 +95,10 @@ func TestSeveralMembersCanBeLiveAtOnce(t *testing.T) {
 	// at a time. Reporting a single "active server" there would be a tidier
 	// answer than the truth.
 	e := groupEngine("bir", "iki", "üç")
-	e.memberMoving = map[string]bool{tag(0): true, tag(2): true}
+	moved(e, 0, time.Second)
+	moved(e, 2, 3*time.Second)
 
-	_, live := e.memberUsageLocked()
+	_, live := e.memberUsageAt(t0)
 	if len(live) != 2 {
 		t.Fatalf("live = %v, want two of them", live)
 	}
@@ -100,7 +113,7 @@ func TestNothingIsClaimedBeforeTheFirstTwoReadings(t *testing.T) {
 	e := groupEngine("bir", "iki")
 	e.memberBytes = map[string]tagTraffic{tag(0): {Up: 10}}
 
-	usage, live := e.memberUsageLocked()
+	usage, live := e.memberUsageAt(t0)
 	if len(live) != 0 {
 		t.Errorf("live = %v on the first reading, want none", live)
 	}
@@ -111,8 +124,49 @@ func TestNothingIsClaimedBeforeTheFirstTwoReadings(t *testing.T) {
 
 func TestASingleProfileHasNoMemberList(t *testing.T) {
 	e := &Engine{profile: &model.Profile{ID: "p1", Name: "tek"}}
-	usage, live := e.memberUsageLocked()
+	usage, live := e.memberUsageAt(t0)
 	if usage != nil || live != nil {
 		t.Errorf("a single server reported group usage %v / %v", usage, live)
+	}
+}
+
+// The flicker this window exists to stop.
+//
+// "In use" used to mean "its counters grew between the last two readings",
+// which are two seconds apart. A member that happened to move nothing in one
+// of those windows — a pause in a video, a gap between requests — stopped
+// being named, and the server's name blinked in and out on the Status page
+// while nothing at all had changed about the connection.
+func TestAnIdleMomentDoesNotEraseTheAnswer(t *testing.T) {
+	e := groupEngine("bir", "iki")
+	moved(e, 0, 6*time.Second) // three polls ago: nothing moved since
+
+	_, live := e.memberUsageAt(t0)
+	if len(live) != 1 || live[0] != "bir" {
+		t.Fatalf("live = %v after six idle seconds; the member is still the "+
+			"one the traffic goes through", live)
+	}
+}
+
+func TestAMemberTheBalancerLeftStopsBeingNamed(t *testing.T) {
+	// The other side of the same rule: the answer has to be able to change.
+	e := groupEngine("bir", "iki")
+	moved(e, 0, memberLiveWindow+time.Second)
+	moved(e, 1, time.Second)
+
+	_, live := e.memberUsageAt(t0)
+	if len(live) != 1 || live[0] != "iki" {
+		t.Fatalf("live = %v; the member that stopped carrying anything a "+
+			"window ago should have dropped out", live)
+	}
+}
+
+func TestTheWindowIsLongEnoughToBeUseful(t *testing.T) {
+	// A window of one or two polls is the bug. This guards the value itself,
+	// because the number is the whole fix.
+	if memberLiveWindow < 15*time.Second {
+		t.Fatalf("the live window is %v, which is a handful of polls — short "+
+			"enough for an ordinary pause to blank the name again",
+			memberLiveWindow)
 	}
 }

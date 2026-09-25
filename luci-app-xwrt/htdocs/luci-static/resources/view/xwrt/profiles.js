@@ -288,10 +288,38 @@ return view.extend({
 			E('option', { 'value': '30s' }, _('every 30 seconds')),
 			E('option', { 'value': '60s' }, _('every minute (recommended)')),
 			E('option', { 'value': '2m' }, _('every 2 minutes')),
-			E('option', { 'value': '5m' }, _('every 5 minutes')),
-			E('option', { 'value': '3m' }, _('every 3 minutes'))
+			E('option', { 'value': '3m' }, _('every 3 minutes')),
+			E('option', { 'value': '5m' }, _('every 5 minutes'))
 		]);
 		probe.value = (existing && existing.probe_interval) || '60s';
+
+		// Where the check is sent.
+		//
+		// The request does not leave through the device's normal route: the
+		// core hands it to the member's own outbound, so it travels through
+		// that server and the answer's round trip is what the ranking is made
+		// of. A router with no way out except the tunnel can still run it.
+		//
+		// Which address is used barely changes the number, because all of
+		// these are answered by whichever edge is nearest the *server*, so
+		// what is being measured is the path to the server either way. It
+		// matters when one of them is unreachable from a particular exit — an
+		// endpoint that never answers makes every member look equally dead and
+		// the ranking becomes noise.
+		var probeURLs = [
+			'https://www.gstatic.com/generate_204',
+			'https://cp.cloudflare.com/generate_204',
+			'http://cp.cloudflare.com/generate_204',
+			'https://connectivitycheck.gstatic.com/generate_204'
+		];
+		var probeURL = E('input', {
+			'class': 'cbi-input-text', 'style': 'width:100%',
+			'type': 'text', 'list': 'xwrt-probe-urls',
+			'placeholder': 'https://www.gstatic.com/generate_204',
+			'value': (existing && existing.probe_url) || ''
+		});
+		var probeList = E('datalist', { 'id': 'xwrt-probe-urls' },
+			probeURLs.map(function(u) { return E('option', { 'value': u }); }));
 
 		var chosen = (existing && existing.members) ? existing.members.slice() : [];
 		var list = E('div', {
@@ -335,6 +363,15 @@ return view.extend({
 				])
 			]),
 			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('Health check address')),
+				E('div', { 'class': 'cbi-value-field' }, [
+					probeURL,
+					probeList,
+					E('div', { 'class': 'cbi-value-description' },
+						_('The check is sent through each member\'s own server, not out of the router directly, so a device with no internet except the tunnel can still run it. Leave empty for the default. Pick something that answers from everywhere your servers are: one that does not answer makes every member look equally dead.'))
+				])
+			]),
+			E('div', { 'class': 'cbi-value' }, [
 				E('label', { 'class': 'cbi-value-title' }, _('Members')),
 				E('div', { 'class': 'cbi-value-field' }, list)
 			]),
@@ -354,11 +391,24 @@ return view.extend({
 								E('p', _('Select at least one server.')), 'warning');
 							return;
 						}
+						// An address the core cannot parse is refused here
+						// rather than saved: the core rejects the whole
+						// configuration over it, and the failure surfaces as
+						// "the tunnel will not start" with nothing pointing
+						// back at this field.
+						var url = String(probeURL.value || '').trim();
+						if (url && !/^https?:\/\/[^\/\s]+/.test(url)) {
+							ui.addNotification(null, E('p',
+								_('The health check address has to start with http:// or https:// and name a host, like %s.')
+									.format('https://cp.cloudflare.com/generate_204')), 'warning');
+							return;
+						}
 						var group = {
 							name: name.value || _('Group'),
 							strategy: strategy.value,
 							members: members,
-							probe_interval: probe.value
+							probe_interval: probe.value,
+							probe_url: url
 						};
 						var req = existing
 							? xwrt.updateGroup(existing.id, group)

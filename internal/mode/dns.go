@@ -351,6 +351,13 @@ func probeResolverWithin(
 	return last
 }
 
+// errUnresolving is the answer that means the resolver is on its socket and
+// cannot resolve. It is a failure for the core's resolver, which exists to
+// resolve, and a success for "is dnsmasq back up", so the two callers have to
+// be able to tell it apart from the rest rather than read the sentence.
+var errUnresolving = errors.New("the resolver is listening but could not " +
+	"resolve anything, so the core has no working path out yet")
+
 // probeOnce sends one query and reports what came back, in the words of what
 // actually happened.
 //
@@ -403,8 +410,7 @@ func probeOnce(port int) error {
 	case 0, 3:
 		return nil
 	case 2:
-		return fmt.Errorf("the resolver is listening but could not resolve " +
-			"anything, so the core has no working path out yet")
+		return errUnresolving
 	default:
 		return fmt.Errorf("the resolver answered with rcode %d", rcode)
 	}
@@ -501,12 +507,69 @@ func (d *DNS) confDirForRevert() string {
 	return dir
 }
 
+// localResolverBudget is how long to wait for dnsmasq to answer again after it
+// has been restarted. It is shorter than the budget for the core, because
+// dnsmasq is starting from a configuration it has served before rather than
+// waiting on a tunnel to come up.
+const localResolverBudget = 15 * time.Second
+
+const dnsmasqInit = "/etc/init.d/dnsmasq"
+
 func restartDnsmasq() error {
-	if _, err := os.Stat("/etc/init.d/dnsmasq"); err != nil {
+	return restartDnsmasqWith(dnsmasqInit,
+		func() error { return run(dnsmasqInit, "restart") },
+		waitForLocalResolver)
+}
+
+// restartDnsmasqWith is the testable half. Restarting a service and waiting
+// for a socket are both things a test cannot do, and the order of the two is
+// the entire point of this function — a restart that returns before the
+// service is up is what it exists to stop.
+func restartDnsmasqWith(initPath string, restart, await func() error) error {
+	if _, err := os.Stat(initPath); err != nil {
 		return nil
 	}
-	if err := run("/etc/init.d/dnsmasq", "restart"); err != nil {
+	if err := restart(); err != nil {
 		return fmt.Errorf("restart dnsmasq: %w", err)
 	}
-	return nil
+	return await()
+}
+
+// waitForLocalResolver blocks until the device can resolve names again.
+//
+// `/etc/init.d/dnsmasq restart` hands the job to procd and returns; dnsmasq is
+// not listening yet when it does. Everything the next few seconds needs the
+// system resolver for then fails against a port with nothing on it.
+//
+// That is a switch between two servers, which goes teardown-then-start: the
+// teardown restarts dnsmasq to put the old resolver configuration back, and
+// the start immediately looks the new server's hostname up. The lookup fails,
+// the address stays a name, the core cannot dial it either — and the connect
+// ends at "the tunnel carries no data" with nothing in the log about DNS at
+// all. Pressing connect again works, because by then dnsmasq is up. That is
+// the whole failure: a question asked half a second too early.
+//
+// Any well-formed reply counts, including SERVFAIL. The question here is only
+// whether dnsmasq is back on its socket; whether it can reach its upstreams is
+// a different question with a different answer, and refusing to continue over
+// it would turn a restart into an outage.
+func waitForLocalResolver() error {
+	return probeResolverWithin(53, localResolverBudget,
+		time.Now, time.Sleep, probeListening)
+}
+
+// probeListening reports whether anything is answering on the port, without
+// judging the answer.
+func probeListening(port int) error {
+	err := probeOnce(port)
+	if err == nil {
+		return nil
+	}
+	// probeOnce turns "listening, but could not resolve" into an error. Here
+	// that is a pass: it took a query and wrote a reply, which is the entire
+	// question being asked.
+	if errors.Is(err, errUnresolving) {
+		return nil
+	}
+	return err
 }

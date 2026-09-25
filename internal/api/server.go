@@ -619,6 +619,12 @@ func validateGroup(d *ucicfg.Data, g *model.Group) error {
 		return fmt.Errorf("unknown strategy %q; use one of: %s",
 			g.Strategy, strings.Join(names, ", "))
 	}
+	// Before Normalize as well: Normalize only fills an empty address, so a
+	// wrong one survives it and reaches the core, where it costs the group its
+	// health checks without any visible failure.
+	if err := g.ValidateProbeURL(); err != nil {
+		return err
+	}
 	g.Normalize()
 	if len(g.Members) == 0 {
 		return errors.New("a group needs at least one member")

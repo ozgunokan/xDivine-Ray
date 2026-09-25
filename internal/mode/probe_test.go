@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -196,4 +199,140 @@ func freeUDPPort(t *testing.T) int {
 	port := c.LocalAddr().(*net.UDPAddr).Port
 	c.Close()
 	return port
+}
+
+// --- and the other question, asked of dnsmasq -------------------------------
+//
+// "Is the core resolving?" and "is dnsmasq back on its socket?" are different
+// questions with different right answers, and for a while only the first one
+// could be asked. The second one matters during a switch between two servers:
+// the teardown restarts dnsmasq and the start immediately looks the new
+// server's hostname up, half a second before there is anything to ask.
+
+func TestAResolverThatCannotResolveIsStillUp(t *testing.T) {
+	port := serveDNS(t, func(query []byte) []byte {
+		reply := append([]byte(nil), query...)
+		reply[2] = 0x81
+		reply[3] = 0x80 | 0x02 // SERVFAIL
+		return reply
+	})
+	if err := probeOnce(port); err == nil {
+		t.Fatal("SERVFAIL passed the core's check, which asks whether it resolves")
+	}
+	if err := probeListening(port); err != nil {
+		t.Fatalf("SERVFAIL failed the restart check: %v\n"+
+			"dnsmasq that is up and cannot reach its upstreams yet is up. "+
+			"Waiting for it to resolve turns a restart into an outage.", err)
+	}
+}
+
+func TestNothingOnThePortIsNotUp(t *testing.T) {
+	// The other half: if this passed on an empty port the wait would return
+	// immediately and the race it exists to close would be back.
+	if err := probeListening(freeUDPPort(t)); err == nil {
+		t.Fatal("an empty port was reported as a running resolver")
+	}
+}
+
+func TestAWorkingResolverIsUp(t *testing.T) {
+	port := serveDNS(t, func(query []byte) []byte {
+		reply := append([]byte(nil), query...)
+		reply[2] = 0x81
+		reply[3] = 0x80 // NOERROR
+		return reply
+	})
+	if err := probeListening(port); err != nil {
+		t.Fatalf("a working resolver was not recognised: %v", err)
+	}
+}
+
+func TestTheRestartWaitIsLongEnoughToCoverOne(t *testing.T) {
+	// procd takes a moment. A budget of a few hundred milliseconds would be
+	// the bug this was written to fix, wearing the clothes of a fix.
+	if localResolverBudget < 5*time.Second {
+		t.Fatalf("the wait after restarting dnsmasq is %v, which is less than "+
+			"a restart takes on a router", localResolverBudget)
+	}
+}
+
+func TestTheWaitKeepsAskingUntilItIsUp(t *testing.T) {
+	// The shape of the real thing: refused, refused, then an answer. One
+	// attempt would give up on the first, which is what the old code did.
+	tries := 0
+	once := func(int) error {
+		tries++
+		if tries < 3 {
+			return syscall.ECONNREFUSED
+		}
+		return nil
+	}
+	clock := time.Unix(0, 0)
+	now := func() time.Time { return clock }
+	sleep := func(d time.Duration) { clock = clock.Add(d) }
+
+	if err := probeResolverWithin(53, localResolverBudget, now, sleep, once); err != nil {
+		t.Fatalf("gave up after %d tries: %v", tries, err)
+	}
+	if tries != 3 {
+		t.Errorf("asked %d times, want 3", tries)
+	}
+}
+
+func TestTheRestartDoesNotReturnBeforeTheResolverIsBack(t *testing.T) {
+	// The whole fix, in one assertion. procd's restart returns as soon as it
+	// has been told; dnsmasq is not listening yet. Everything the next few
+	// seconds needs a resolver for then fails against a port with nothing on
+	// it, and the failure surfaces somewhere else entirely — as a tunnel that
+	// carries no data, with nothing in the log about DNS.
+	dir := t.TempDir()
+	init := filepath.Join(dir, "dnsmasq")
+	if err := os.WriteFile(init, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var order []string
+	err := restartDnsmasqWith(init,
+		func() error { order = append(order, "restart"); return nil },
+		func() error { order = append(order, "wait"); return nil })
+	if err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if len(order) != 2 || order[0] != "restart" || order[1] != "wait" {
+		t.Fatalf("what happened was %v; the restart has to be followed by a "+
+			"wait for the resolver to answer again", order)
+	}
+}
+
+func TestAFailedRestartIsNotWaitedOn(t *testing.T) {
+	// Fifteen seconds spent waiting for a service that was never started is
+	// fifteen seconds added to a failure.
+	dir := t.TempDir()
+	init := filepath.Join(dir, "dnsmasq")
+	if err := os.WriteFile(init, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	waited := false
+	err := restartDnsmasqWith(init,
+		func() error { return errors.New("no such service") },
+		func() error { waited = true; return nil })
+	if err == nil {
+		t.Fatal("a restart that failed was reported as a success")
+	}
+	if waited {
+		t.Error("waited for a resolver after failing to start it")
+	}
+}
+
+func TestADeviceWithoutDnsmasqIsNotWaitedOn(t *testing.T) {
+	called := false
+	err := restartDnsmasqWith(filepath.Join(t.TempDir(), "absent"),
+		func() error { called = true; return nil },
+		func() error { called = true; return nil })
+	if err != nil {
+		t.Fatalf("a device that does not run dnsmasq reported %v", err)
+	}
+	if called {
+		t.Error("something was restarted or waited for on a device with no dnsmasq")
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -430,6 +431,31 @@ func (g *Group) Validate() error {
 	}
 	if !g.Strategy.Valid() {
 		return fmt.Errorf("unknown strategy %q", g.Strategy)
+	}
+	return g.ValidateProbeURL()
+}
+
+// ValidateProbeURL checks the health-check address.
+//
+// A wrong one does not stop anything: the core starts, the tunnel comes up,
+// and every probe fails. All members then look equally dead, the ranking is
+// made of nothing, and the balancer falls back to whichever member happens to
+// come first — a group that silently stops being a group. Nothing on any
+// screen says so, so it is refused at the point where someone typed it.
+func (g *Group) ValidateProbeURL() error {
+	if g.ProbeURL == "" {
+		return nil // Normalize fills the default.
+	}
+	u, err := url.Parse(g.ProbeURL)
+	if err != nil {
+		return fmt.Errorf("health check address %q is not a URL: %w", g.ProbeURL, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("health check address %q has to start with http:// "+
+			"or https://", g.ProbeURL)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("health check address %q names no host", g.ProbeURL)
 	}
 	return nil
 }
