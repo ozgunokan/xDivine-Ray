@@ -463,7 +463,13 @@ func (g *Group) ValidateProbeURL() error {
 // Defaults for group health checking. A 204 endpoint is used because it
 // returns no body, which keeps the probe cheap on a metered link.
 const (
-	DefaultProbeURL = "https://www.gstatic.com/generate_204"
+	// Cloudflare's captive-portal endpoint. It is built for exactly this —
+	// 204, empty body, no redirect, no cookies — and it is anycast, so
+	// whichever proxy server the check goes through is answered by an edge
+	// near that server. What gets measured is then the path from the router to
+	// the server, which is the thing the members are being ranked on, rather
+	// than how far each server happens to sit from one fixed machine.
+	DefaultProbeURL = "https://cp.cloudflare.com/generate_204"
 	// How often each member is probed. This is also how long a dead server
 	// keeps being used: the balancer picks from the last measurement, so
 	// nothing changes until the next probe marks the member unhealthy. Three

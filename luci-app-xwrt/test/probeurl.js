@@ -43,15 +43,27 @@ function dialog(existing) {
 	view.handleAddGroup(PROFILES, existing);
 
 	var modal = global.MODALS[global.MODALS.length - 1];
-	var inputs = modal.body.querySelectorAll('input');
-	var field = null;
-	inputs.forEach(function(el) {
-		if (el.getAttribute('list') === 'xwrt-probe-urls') field = el;
+	// The dropdown is the one whose options are addresses; the dialog has
+	// three selects and picking by position would pass on the wrong one.
+	var field = null, custom = null;
+	modal.body.querySelectorAll('select').forEach(function(el) {
+		el.querySelectorAll('option').forEach(function(o) {
+			if (o.value.indexOf('http') === 0) field = el;
+		});
+	});
+	modal.body.querySelectorAll('input[type=text]').forEach(function(el) {
+		if (String(el.getAttribute('placeholder') || '').indexOf('generate_204') >= 0)
+			custom = el;
 	});
 
 	return {
 		body: modal.body,
 		field: field,
+		custom: custom,
+		pickOther: function() {
+			field.value = '__other__';
+			field.listeners['change'].forEach(function(fn) { fn(); });
+		},
 		save: function() {
 			sent = null;
 			var buttons = modal.body.querySelectorAll('button');
@@ -62,61 +74,89 @@ function dialog(existing) {
 	};
 }
 
-// 1. The field is there at all, and it is a field — not a line of text saying
-//    which address is used.
+// 1. The field is there at all, it is a real dropdown, and Cloudflare is what
+//    a new group gets. A datalist on a text box was the first attempt: the
+//    themes style the input, the arrow belongs to the browser, and clicking it
+//    showed a grey tooltip of the current value rather than the choices.
 var d = dialog(null);
-check('the group dialog has a health check address field', !!d.field);
-check('and it offers addresses to choose from',
-	d.body.querySelectorAll('datalist').length === 1);
+check('the group dialog has a health check address dropdown', !!d.field);
+check('and a box for an address that is not on the list', !!d.custom);
 if (d.field) {
-	var options = d.body.querySelectorAll('datalist')[0]
-		.querySelectorAll('option').map(function(o) { return o.value; });
-	check('Cloudflare is one of them',
-		options.indexOf('https://cp.cloudflare.com/generate_204') >= 0);
-	check('and so is the default, so the current value is reachable again ' +
-		'after changing it',
+	var options = d.field.querySelectorAll('option').map(function(o) { return o.value; });
+	check('Cloudflare is the first choice, so a new group gets it',
+		options[0] === 'https://cp.cloudflare.com/generate_204');
+	check('Google is still offered',
 		options.indexOf('https://www.gstatic.com/generate_204') >= 0);
+	check('and so is an address of your own',
+		options.indexOf('__other__') >= 0);
+	check('the choices say what they are, not just a URL',
+		(d.field.textContent || '').indexOf('Cloudflare') >= 0);
 }
 
-// 2. What is typed is what gets sent. This is the check the field exists for:
-//    an input the Save button never reads looks identical on screen.
+// 2. A new group saves the address the dropdown is showing. The field exists
+//    to be read: a dropdown the Save button ignores looks identical on screen.
 d = dialog(null);
-d.field.value = 'https://cp.cloudflare.com/generate_204';
 d.body.querySelectorAll('input[type=checkbox]')[0].checked = true;
 var sent = d.save();
-check('Save sends the address that was typed',
+check('a new group is saved with Cloudflare',
 	sent && sent.probe_url === 'https://cp.cloudflare.com/generate_204');
 check('and still sends the rest of the group',
 	sent && sent.members.length === 1 && sent.strategy === 'leastPing' &&
 	sent.probe_interval === '60s');
 
-// 3. Left alone, nothing is forced: an empty value means "use the default",
-//    which the daemon fills in. Sending a hard-coded address from here would
-//    pin every group to whatever this file happened to say.
+// 3. Choosing another one from the list sends that one.
 d = dialog(null);
+d.field.value = 'https://www.gstatic.com/generate_204';
 d.body.querySelectorAll('input[type=checkbox]')[0].checked = true;
 sent = d.save();
-check('an untouched field sends an empty address, not a copy of the default',
-	sent && sent.probe_url === '');
+check('picking Google from the list saves Google',
+	sent && sent.probe_url === 'https://www.gstatic.com/generate_204');
 
-// 4. Editing an existing group shows what that group is actually using, rather
-//    than a blank box that silently resets the value on the next save.
+// 4. "Other address…" reveals the box, and what is typed there is what is sent.
+d = dialog(null);
+check('the box is hidden until it is needed',
+	(d.custom.getAttribute('style') || '').indexOf('display:none') >= 0);
+d.pickOther();
+check('choosing an address of your own shows the box',
+	(d.custom.getAttribute('style') || '').indexOf('display:block') >= 0);
+d.custom.value = 'https://example.net/204';
+d.body.querySelectorAll('input[type=checkbox]')[0].checked = true;
+sent = d.save();
+check('and what is typed there is what gets saved',
+	sent && sent.probe_url === 'https://example.net/204');
+
+// 5. Editing an existing group shows the address it is using, including one
+//    that is not on the list — otherwise opening the dialog to change the
+//    group's name silently replaces the address.
 d = dialog({
 	id: 'g1', name: 'avrupa', strategy: 'leastLoad', members: [ 'p1' ],
-	probe_interval: '2m', probe_url: 'https://cp.cloudflare.com/generate_204'
+	probe_interval: '2m', probe_url: 'https://www.gstatic.com/generate_204'
 });
 check('editing a group shows the address it is using',
-	d.field && d.field.value === 'https://cp.cloudflare.com/generate_204');
+	d.field && d.field.value === 'https://www.gstatic.com/generate_204');
 sent = d.save();
 check('and saving without touching it keeps that address',
-	sent && sent.probe_url === 'https://cp.cloudflare.com/generate_204');
+	sent && sent.probe_url === 'https://www.gstatic.com/generate_204');
 
-// 5. Something that is not a URL is refused here, where the person can see the
+d = dialog({
+	id: 'g1', name: 'avrupa', strategy: 'leastPing', members: [ 'p1' ],
+	probe_url: 'https://my.own.example/204'
+});
+check('an address that is not on the list is kept and shown in the box',
+	d.field.value === '__other__' && d.custom.value === 'https://my.own.example/204');
+check('and the box is open, so it can be seen without clicking anything',
+	(d.custom.getAttribute('style') || '').indexOf('display:block') >= 0);
+sent = d.save();
+check('and it survives a save',
+	sent && sent.probe_url === 'https://my.own.example/204');
+
+// 6. Something that is not a URL is refused here, where the person can see the
 //    field. Saved, it costs the group its health checks and reports nothing:
 //    the tunnel comes up, traffic flows, and the ranking is made of failures.
 [ 'cp.cloudflare.com', 'ftp://example.com/x', 'tcp://1.1.1.1:53' ].forEach(function(bad) {
 	d = dialog(null);
-	d.field.value = bad;
+	d.pickOther();
+	d.custom.value = bad;
 	d.body.querySelectorAll('input[type=checkbox]')[0].checked = true;
 	var out = d.save();
 	check('"' + bad + '" is refused rather than stored', out === null);
@@ -124,7 +164,16 @@ check('and saving without touching it keeps that address',
 		global.NOTIFICATIONS.length > 0);
 });
 
-// 6. The warning is not a wall: a group with no members is still the thing
+// 7. "Other address…" with an empty box would save nothing at all, and the
+//    daemon would fill in the default — so the group would use an address the
+//    operator did not choose while the dialog said "Other".
+d = dialog(null);
+d.pickOther();
+d.body.querySelectorAll('input[type=checkbox]')[0].checked = true;
+check('an empty box is refused rather than turned into the default',
+	d.save() === null);
+
+// 8. The warning is not a wall: a group with no members is still the thing
 //    being complained about there, and the address check must not have taken
 //    that message over.
 d = dialog(null);

@@ -186,12 +186,23 @@ var TR = {
 		"Sağlık yoklaması",
 	"Health check address":
 		"Yoklama adresi",
-	"The check is sent through each member's own server, not out of the router directly, so a device with no internet except the tunnel can still run it. Leave empty for the default. Pick something that answers from everywhere your servers are: one that does not answer makes every member look equally dead.":
+	"The check is sent through each member's own server, not out of the router directly, so a device with no internet except the tunnel can still run it. Pick something that answers from everywhere your servers are: one that does not answer makes every member look equally dead.":
 		"Yoklama, cihazın normal çıkışından değil, her üyenin kendi sunucusunun " +
 		"üzerinden gönderilir; tünel dışında internete çıkamayan bir cihazda da " +
-		"çalışır. Boş bırakırsanız varsayılan kullanılır. Sunucularınızın " +
-		"bulunduğu her yerden cevap veren bir adres seçin: cevap vermeyen bir " +
-		"adres bütün üyeleri eşit ölçüde ölü gösterir.",
+		"çalışır. Sunucularınızın bulunduğu her yerden cevap veren bir adres " +
+		"seçin: cevap vermeyen bir adres bütün üyeleri eşit ölçüde ölü gösterir.",
+	"Cloudflare (recommended)":
+		"Cloudflare (önerilen)",
+	"Cloudflare, without TLS":
+		"Cloudflare, TLS'siz",
+	"Google":
+		"Google",
+	"Google, connectivity check":
+		"Google, bağlantı kontrolü",
+	"Other address\u2026":
+		"Başka bir adres\u2026",
+	"Type a health check address, or pick one from the list.":
+		"Bir yoklama adresi yazın veya listeden birini seçin.",
 	"The health check address has to start with http:// or https:// and name a host, like %s.":
 		"Yoklama adresi http:// veya https:// ile başlamalı ve bir adres " +
 		"içermeli; örneğin %s.",

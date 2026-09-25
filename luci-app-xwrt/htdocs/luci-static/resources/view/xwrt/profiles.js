@@ -306,20 +306,64 @@ return view.extend({
 		// matters when one of them is unreachable from a particular exit — an
 		// endpoint that never answers makes every member look equally dead and
 		// the ranking becomes noise.
+		// A list and a box, not one input pretending to be both.
+		//
+		// This was a text field with a datalist, which is the tidy way to write
+		// it and does not work: the themes style the input, the arrow belongs
+		// to the browser, and clicking it showed a single grey tooltip of the
+		// current value instead of the choices. Something that looks like a
+		// dropdown and does not open is worse than a plain box.
 		var probeURLs = [
-			'https://www.gstatic.com/generate_204',
-			'https://cp.cloudflare.com/generate_204',
-			'http://cp.cloudflare.com/generate_204',
-			'https://connectivitycheck.gstatic.com/generate_204'
+			[ 'https://cp.cloudflare.com/generate_204', _('Cloudflare (recommended)') ],
+			[ 'http://cp.cloudflare.com/generate_204', _('Cloudflare, without TLS') ],
+			[ 'https://www.gstatic.com/generate_204', _('Google') ],
+			[ 'https://connectivitycheck.gstatic.com/generate_204', _('Google, connectivity check') ]
 		];
-		var probeURL = E('input', {
-			'class': 'cbi-input-text', 'style': 'width:100%',
-			'type': 'text', 'list': 'xwrt-probe-urls',
-			'placeholder': 'https://www.gstatic.com/generate_204',
-			'value': (existing && existing.probe_url) || ''
+		var probeOther = '__other__';
+		var probeURL = E('select', { 'class': 'cbi-input-select', 'style': 'width:100%' },
+			probeURLs.map(function(u) {
+				return E('option', { 'value': u[0] }, u[1] + ' — ' + u[0]);
+			}).concat([ E('option', { 'value': probeOther }, _('Other address…')) ]));
+
+		var probeCustom = E('input', {
+			'class': 'cbi-input-text',
+			'type': 'text',
+			'placeholder': 'https://example.com/generate_204'
 		});
-		var probeList = E('datalist', { 'id': 'xwrt-probe-urls' },
-			probeURLs.map(function(u) { return E('option', { 'value': u }); }));
+		// Written through setAttribute rather than .style: the same line then
+		// means the same thing in a browser and in the checks, and a field
+		// that is only ever shown in one of the two is a field nobody tested.
+		function showCustom(on) {
+			probeCustom.setAttribute('style',
+				'width:100%;margin-top:.4em;display:' + (on ? 'block' : 'none'));
+		}
+		showCustom(false);
+
+		// An address that is not one of the choices has to stay selectable, or
+		// opening the dialog to change the group's name silently replaces it.
+		var savedURL = (existing && existing.probe_url) || '';
+		var known = probeURLs.some(function(u) { return u[0] === savedURL; });
+		if (savedURL && !known) {
+			probeURL.value = probeOther;
+			probeCustom.value = savedURL;
+			showCustom(true);
+		} else if (savedURL) {
+			probeURL.value = savedURL;
+		}
+
+		probeURL.addEventListener('change', function() {
+			var other = probeURL.value === probeOther;
+			showCustom(other);
+			if (other && typeof probeCustom.focus === 'function')
+				probeCustom.focus();
+		});
+
+		// What the two of them mean together, in one place, so the save button
+		// and the tests read the same answer.
+		function probeValue() {
+			if (probeURL.value !== probeOther) return probeURL.value;
+			return String(probeCustom.value || '').trim();
+		}
 
 		var chosen = (existing && existing.members) ? existing.members.slice() : [];
 		var list = E('div', {
@@ -366,9 +410,9 @@ return view.extend({
 				E('label', { 'class': 'cbi-value-title' }, _('Health check address')),
 				E('div', { 'class': 'cbi-value-field' }, [
 					probeURL,
-					probeList,
+					probeCustom,
 					E('div', { 'class': 'cbi-value-description' },
-						_('The check is sent through each member\'s own server, not out of the router directly, so a device with no internet except the tunnel can still run it. Leave empty for the default. Pick something that answers from everywhere your servers are: one that does not answer makes every member look equally dead.'))
+						_('The check is sent through each member\'s own server, not out of the router directly, so a device with no internet except the tunnel can still run it. Pick something that answers from everywhere your servers are: one that does not answer makes every member look equally dead.'))
 				])
 			]),
 			E('div', { 'class': 'cbi-value' }, [
@@ -396,7 +440,17 @@ return view.extend({
 						// configuration over it, and the failure surfaces as
 						// "the tunnel will not start" with nothing pointing
 						// back at this field.
-						var url = String(probeURL.value || '').trim();
+						var url = probeValue();
+						// "Other address…" with nothing typed would save an
+						// empty value, which the daemon fills with the
+						// default — so the dialog would quietly use an address
+						// the operator did not pick while showing "Other".
+						if (probeURL.value === probeOther && !url) {
+							ui.addNotification(null, E('p',
+								_('Type a health check address, or pick one from the list.')),
+								'warning');
+							return;
+						}
 						if (url && !/^https?:\/\/[^\/\s]+/.test(url)) {
 							ui.addNotification(null, E('p',
 								_('The health check address has to start with http:// or https:// and name a host, like %s.')

@@ -1,6 +1,10 @@
 package model
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 // The address the health check is sent to.
 //
@@ -70,5 +74,46 @@ func TestTheWholeGroupCheckCoversTheAddress(t *testing.T) {
 	}
 	if err := g.Validate(); err == nil {
 		t.Fatal("a group with an unusable health check address passed Validate")
+	}
+}
+
+// TestTheDefaultIsWhatTheDialogOffersFirst keeps two files that cannot import
+// each other in step.
+//
+// The daemon fills an empty address with DefaultProbeURL; the group dialog
+// shows a list whose first entry is what a new group gets. If those two ever
+// name different addresses, a group created through the API and then opened in
+// the dialog shows "Other address…" with a box the operator never filled in,
+// and changing the group's name rewrites its health check address.
+func TestTheDefaultIsWhatTheDialogOffersFirst(t *testing.T) {
+	const dialog = "../../luci-app-xwrt/htdocs/luci-static/resources/view/xwrt/profiles.js"
+
+	b, err := os.ReadFile(dialog)
+	if err != nil {
+		t.Fatalf("cannot read the group dialog: %v", err)
+	}
+	src := string(b)
+
+	// The first entry of the list the dialog builds.
+	const marker = "var probeURLs = ["
+	i := strings.Index(src, marker)
+	if i < 0 {
+		t.Fatalf("no probe address list in %s; if it was renamed, this check "+
+			"has to be renamed with it rather than deleted", dialog)
+	}
+	rest := src[i+len(marker):]
+	first := strings.Index(rest, "'")
+	if first < 0 {
+		t.Fatal("the probe address list has no entries")
+	}
+	rest = rest[first+1:]
+	end := strings.Index(rest, "'")
+	if end < 0 {
+		t.Fatal("the first entry of the probe address list is not a string")
+	}
+	if got := rest[:end]; got != DefaultProbeURL {
+		t.Errorf("the dialog offers %q first and the daemon defaults to %q;\n"+
+			"a group made through the API then opens in the dialog showing "+
+			"\"Other address…\"", got, DefaultProbeURL)
 	}
 }
