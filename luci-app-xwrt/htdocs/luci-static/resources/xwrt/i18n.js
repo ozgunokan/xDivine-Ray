@@ -618,6 +618,14 @@ var TR = {
 		"Şu an",
 	"in use":
 		"kullanımda",
+	"standby (%d.)":
+		"yedekte (%d.)",
+	"not answering":
+		"cevap vermiyor",
+	"no answer":
+		"cevap yok",
+	"Latency":
+		"Gecikme",
 	"%s failed":
 		"%s başarısız oldu",
 	"Open the log":

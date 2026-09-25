@@ -93,6 +93,18 @@ type Engine struct {
 	// as though it had made the name on the Status page blink in and out.
 	memberLastMove map[string]time.Time
 
+	// The balancer's own answer: the members it is choosing between, best
+	// first. Empty when the core could not be asked — an older build, a
+	// service that is not there — and the counters above are used instead.
+	memberOrder []string
+	// Whether the last attempt to ask worked, so the fallback is a decision
+	// rather than an accident, and so it is said once rather than every poll.
+	balancerAsked  bool
+	balancerWarned bool
+
+	// How long a plain handshake to each member's server took, by position.
+	memberPing []memberLatency
+
 	// When the connection table was last reported as nearly full.
 	conntrackWarnedAt time.Time
 }
@@ -275,7 +287,7 @@ func (e *Engine) fallBackLocked(was, attempted string) {
 	if err := e.connectLocked(was); err != nil {
 		e.record(err)
 		e.teardownLocked()
-		e.Log.Warnf("the previous connection could not be restored either; "+
+		e.Log.Warnf("the previous connection could not be restored either; " +
 			"the device is not connected to anything")
 		return
 	}
@@ -1049,6 +1061,52 @@ func (e *Engine) startStatsLocked() {
 
 	e.history.Reset()
 
+	// The two questions the counters cannot answer, each on its own clock:
+	// which member the balancer is using, and how far away each server is.
+	// Read here, under the lock the caller already holds, so the goroutine
+	// does not have to reach back into the engine to find out what it is
+	// measuring.
+	if e.group != nil && len(e.members) > 0 {
+		members := append([]model.Profile(nil), e.members...)
+		askBalancer := e.group.Strategy.HealthAware()
+		// With the router's own traffic proxied, a dial to a server's address
+		// is captured like everything else and completed by the server
+		// connecting to itself. It comes back in about two milliseconds and
+		// reads as a wonderfully fast link. Better no column than that one.
+		measure := !e.settings.ProxyRouter
+		server := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+		e.memberOrder = nil
+		e.memberPing = nil
+		e.balancerWarned = false
+
+		go func() {
+			if askBalancer {
+				e.refreshBalancer(bin, server)
+			}
+			if measure {
+				e.refreshLatency(members)
+			}
+			ask := time.NewTicker(balancerInterval)
+			ping := time.NewTicker(latencyEvery)
+			defer ask.Stop()
+			defer ping.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ask.C:
+					if askBalancer {
+						e.refreshBalancer(bin, server)
+					}
+				case <-ping.C:
+					if measure {
+						e.refreshLatency(members)
+					}
+				}
+			}
+		}()
+	}
+
 	go func() {
 		ticker := time.NewTicker(statsInterval)
 		defer ticker.Stop()
@@ -1235,6 +1293,14 @@ func (e *Engine) memberUsageAt(now time.Time) ([]model.MemberUsage, []string) {
 	if e.group == nil || len(e.members) == 0 {
 		return nil, nil
 	}
+	// The balancer's own ordering, if the core answered. Position 1 is the
+	// member it hands the next connection to; a member missing from it failed
+	// its last health check and is not being used at all.
+	rank := map[string]int{}
+	for i, tag := range e.memberOrder {
+		rank[tag] = i + 1
+	}
+
 	usage := make([]model.MemberUsage, 0, len(e.members))
 	var live []string
 	for i := range e.members {
@@ -1245,7 +1311,20 @@ func (e *Engine) memberUsageAt(now time.Time) ([]model.MemberUsage, []string) {
 			Name:      e.members[i].Label(),
 			Uplink:    t.Up,
 			Downlink:  t.Down,
-			Live:      e.liveAt(tag, now),
+			Rank:      rank[tag],
+		}
+		if len(e.memberOrder) > 0 {
+			// The core answered, so the counters are not consulted at all:
+			// under a health-aware strategy they say every member is busy in
+			// turn, because the health check goes through each of them.
+			u.Live = rank[tag] == 1
+		} else {
+			u.Live = e.liveAt(tag, now)
+		}
+		if i < len(e.memberPing) {
+			p := e.memberPing[i]
+			u.LatencyMS = p.MS
+			u.Unreachable = !p.OK && !p.At.IsZero()
 		}
 		if u.Live {
 			live = append(live, u.Name)

@@ -419,7 +419,16 @@ func Build(o Options) (*Config, error) {
 	cfg := &Config{
 		Log:   &LogConfig{LogLevel: s.LogLevel, Access: accessLog(s.LogLevel)},
 		Stats: &struct{}{},
-		API:   &APIConfig{Tag: TagAPI, Services: []string{"StatsService"}},
+		// RoutingService is what `xray api bi` needs. It is the only way to
+		// ask the balancer which member it is actually using: the byte
+		// counters cannot tell traffic from the health check, which goes
+		// through every member's own tunnel and makes all of them look busy.
+		//
+		// A core built without it ignores the name rather than refusing the
+		// config — the service list is a lookup, and an entry that matches
+		// nothing is skipped — so this is safe to ask for unconditionally and
+		// the caller finds out at the point of use.
+		API: &APIConfig{Tag: TagAPI, Services: []string{"StatsService", "RoutingService"}},
 		Policy: &PolicyConfig{
 			System: &SystemPolicy{
 				StatsOutboundUplink:   true,

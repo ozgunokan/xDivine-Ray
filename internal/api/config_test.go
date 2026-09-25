@@ -236,7 +236,7 @@ func TestAWrittenOutHealthCheckAddressSurvives(t *testing.T) {
 	doc := goodDoc(t)
 	doc["groups"] = []any{map[string]any{
 		"id": "g1", "name": "avrupa", "strategy": "leastPing",
-		"members": []any{"p1"},
+		"members":   []any{"p1"},
 		"probe_url": "https://cp.cloudflare.com/generate_204",
 	}}
 

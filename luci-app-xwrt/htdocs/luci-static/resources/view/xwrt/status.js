@@ -107,7 +107,8 @@ function memberTable(status) {
 					E('strong', {}, m.name)
 				])
 				: E('span', { 'style': 'opacity:.75' }, m.name)),
-			E('div', { 'class': 'td' }, m.live ? _('in use') : '-'),
+			E('div', { 'class': 'td' }, memberState(m)),
+			E('div', { 'class': 'td' }, memberPing(m)),
 			E('div', { 'class': 'td' }, xwrt.formatBytes(m.uplink)),
 			E('div', { 'class': 'td' }, xwrt.formatBytes(m.downlink))
 		]);
@@ -119,11 +120,43 @@ function memberTable(status) {
 			E('div', { 'class': 'tr table-titles' }, [
 				E('div', { 'class': 'th' }, _('Server')),
 				E('div', { 'class': 'th' }, _('Now')),
+				E('div', { 'class': 'th' }, _('Latency')),
 				E('div', { 'class': 'th' }, _('Sent')),
 				E('div', { 'class': 'th' }, _('Received'))
 			])
 		].concat(rows)))
 	];
+}
+
+// memberState says what the balancer is doing with this member.
+//
+// The three answers are different things and were all shown as "-" before: the
+// one being used, one that is healthy and waiting, and one the balancer has
+// dropped because it failed its last health check. The last of those is the
+// one worth seeing — a group quietly running on two of its three servers looks
+// exactly like a group running on three.
+function memberState(m) {
+	if (m.live)
+		return E('strong', {}, _('in use'));
+	if (m.rank > 1)
+		return E('span', { 'style': 'opacity:.75' },
+			_('standby (%d.)').format(m.rank));
+	if (m.rank === 0 && m.unreachable)
+		return E('span', { 'style': 'color:#d9534f' }, _('not answering'));
+	return E('span', { 'style': 'opacity:.75' }, '-');
+}
+
+// memberPing is the handshake time to that server, measured from the router.
+//
+// Deliberately not called "ping": nothing sends an ICMP echo here, and the
+// number is a TCP handshake to the server's own port — the part of the core's
+// own measurement that differs between members.
+function memberPing(m) {
+	if (m.unreachable)
+		return E('span', { 'style': 'color:#d9534f' }, _('no answer'));
+	if (!m.latency_ms)
+		return E('span', { 'style': 'opacity:.6' }, '-');
+	return E('span', {}, m.latency_ms + ' ms');
 }
 
 // failureBanner shows the last failure the daemon recorded: what failed, at

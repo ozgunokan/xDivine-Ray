@@ -91,4 +91,49 @@ t = page({
 check('a single server gets no member table',
 	t.indexOf('Bu gruptaki sunucular') < 0 && t.indexOf('henüz trafik yok') < 0);
 
+// --- what the balancer is doing with each member ----------------------------
+//
+// "in use" and "-" were the only two answers, and they hid the one that
+// matters: a member the balancer has dropped because it failed its health
+// check. A group of three quietly running on two looks exactly like a healthy
+// group of three.
+
+var ranked = [
+	{ profile_id: 'p1', name: 'amsterdam-1', uplink: 9, downlink: 9,
+	  live: false, rank: 2, latency_ms: 88 },
+	{ profile_id: 'p2', name: 'frankfurt-2', uplink: 2200000, downlink: 18000000,
+	  live: true, rank: 1, latency_ms: 42 },
+	{ profile_id: 'p3', name: 'paris-3', uplink: 0, downlink: 0,
+	  live: false, rank: 0, unreachable: true }
+];
+
+t = page(withUsage({ group_live: [ 'frankfurt-2' ], group_usage: ranked }));
+check('the member in use says so', t.indexOf('kullanımda') >= 0);
+check('a healthy member that is not chosen says it is standing by, and where ' +
+	'in the order it is', t.indexOf('yedekte (2.)') >= 0);
+check('a member the balancer dropped is called out rather than shown as a dash',
+	t.indexOf('cevap vermiyor') >= 0);
+
+// The latency column. Not "ping": nothing sends an ICMP echo, it is a TCP
+// handshake to the server's own port.
+check('the latency column has a heading', t.indexOf('Gecikme') >= 0);
+check('and the measured members show their number',
+	t.indexOf('42 ms') >= 0 && t.indexOf('88 ms') >= 0);
+check('while the one that did not answer says so instead of showing 0 ms',
+	t.indexOf('cevap yok') >= 0 && t.indexOf('0 ms') < 0);
+
+// A member that has not been measured yet is not a member that failed. With
+// the router's own traffic proxied nothing is measured at all, and a column of
+// "no answer" would report a fault the group does not have.
+var unmeasured = ranked.map(function(m) {
+	var c = {}; for (var k in m) c[k] = m[k];
+	delete c.latency_ms; delete c.unreachable;
+	return c;
+});
+t = page(withUsage({ group_live: [ 'frankfurt-2' ], group_usage: unmeasured }));
+check('nothing is claimed about a member that was never measured',
+	t.indexOf('cevap yok') < 0 && t.indexOf(' ms') < 0);
+check('and the rest of the row is still there',
+	t.indexOf('kullanımda') >= 0 && t.indexOf('amsterdam-1') >= 0);
+
 process.exit(fail);

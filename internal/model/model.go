@@ -736,10 +736,37 @@ type MemberUsage struct {
 	Name      string `json:"name"`
 	Uplink    int64  `json:"uplink"`
 	Downlink  int64  `json:"downlink"`
-	// Live is true when this member's counters moved between the last two
-	// readings, which is as close to "in use right now" as a balancer lets
-	// anyone get.
+	// Live is true when this member is the one the balancer is handing new
+	// connections to.
+	//
+	// With a health-aware strategy this is the core's own answer, asked for
+	// directly. It used to be read off the counters — "its numbers moved
+	// recently" — and that is wrong for exactly the reason it looks right:
+	// the health check goes through every member's own tunnel, so every
+	// member's counters move in turn and two or three servers are named at
+	// once while one is carrying everything.
+	//
+	// With random or round-robin there is no single answer to give: those
+	// strategies spread connections across members deliberately, and more
+	// than one really is in use. There is also no health check under them, so
+	// nothing pollutes the counters and the movement reading is honest.
 	Live bool `json:"live"`
+	// Rank is this member's position in the balancer's order, 1 for the one
+	// it would choose. Zero means the balancer left it out — it failed its
+	// last health check — or that there is no ranking to report.
+	Rank int `json:"rank,omitempty"`
+	// LatencyMS is how long a plain TCP handshake to this server took from the
+	// router, with nothing else in the way. Zero means not measured.
+	//
+	// This is not the number the core ranks on: the core's probe is a whole
+	// request through the tunnel. It is the part of that number which differs
+	// between members, and unlike the core's it can be shown for every
+	// strategy rather than only the two that run an observatory.
+	LatencyMS int `json:"latency_ms,omitempty"`
+	// Unreachable is true when the handshake above did not complete. It is a
+	// separate field rather than a zero latency because "did not answer" and
+	// "not measured yet" have to look different on screen.
+	Unreachable bool `json:"unreachable,omitempty"`
 }
 
 // Status is the runtime state reported to clients.
