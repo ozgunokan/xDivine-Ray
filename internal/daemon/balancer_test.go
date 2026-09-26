@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"xwrt/internal/model"
+	"xwrt/internal/netmark"
 	"xwrt/internal/xray"
 )
 
@@ -185,5 +186,52 @@ func TestMeasuringWalksEveryMemberInOrder(t *testing.T) {
 	if got[0].At.IsZero() {
 		t.Error("no time on the measurement, so a stale round cannot be told " +
 			"from one that never ran")
+	}
+}
+
+// The measuring socket has to carry the core's firewall mark.
+//
+// This is the whole reason the latency column means anything when the router's
+// own traffic is proxied. An unmarked dial to a server's address is captured
+// by the same rules as everything else: into the core, out through the tunnel,
+// and completed by that server opening a connection to itself. Every member
+// then measures about two milliseconds, identically, and the column looks like
+// a very fast network instead of a broken measurement.
+//
+// The rule it has to escape is the first line of both output chains:
+// `meta mark <mark> return`.
+
+func TestTheMeasuringSocketIsMarked(t *testing.T) {
+	s := model.Defaults()
+	mark := s.MarkValue()
+	if mark <= 0 {
+		t.Fatalf("the default firewall mark is %d; there is nothing to set on "+
+			"the socket and the measurement would be captured", mark)
+	}
+	if netmark.Control(mark) == nil {
+		t.Error("no socket hook for a real mark, so the dial goes out " +
+			"unmarked and is captured by the daemon's own rules")
+	}
+}
+
+func TestNoMarkMeansNoHook(t *testing.T) {
+	// A device with marking switched off should not get a hook that sets zero;
+	// SO_MARK 0 is "no mark", and asking for it is a syscall for nothing.
+	if netmark.Control(0) != nil {
+		t.Error("a socket hook was installed for a mark of zero")
+	}
+}
+
+func TestTheMarkComesFromTheSameSettingTheRulesUse(t *testing.T) {
+	// The firewall plan and this dialler both read Settings.MarkValue. If they
+	// ever read different things the measurement is captured again, silently,
+	// and the numbers look plausible.
+	s := model.Defaults()
+	s.FwMark = "0x2a"
+	if s.MarkValue() != 0x2a {
+		t.Fatalf("mark = %#x, want 0x2a", s.MarkValue())
+	}
+	if netmark.Control(s.MarkValue()) == nil {
+		t.Error("a configured mark produced no socket hook")
 	}
 }

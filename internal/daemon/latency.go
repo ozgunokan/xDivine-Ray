@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"xwrt/internal/model"
+	"xwrt/internal/netmark"
 )
 
 // How far away each of a group's servers is.
@@ -65,19 +66,34 @@ func measureMembers(members []model.Profile, dial func(string) (int, bool)) []me
 }
 
 // dialLatency opens a TCP connection and reports how long it took.
-func dialLatency(addr string) (int, bool) {
-	start := time.Now()
-	c, err := net.DialTimeout("tcp", addr, latencyTimeout)
-	if err != nil {
-		return 0, false
+//
+// The socket carries the core's own firewall mark, which is what makes this
+// measurement mean anything when the router's own traffic is proxied.
+//
+// Without it, a dial to a server's address is captured by the same rules as
+// everything else: it goes into the core, out through the tunnel, and is
+// completed by the server opening a connection to itself. It comes back in
+// about two milliseconds and reads as a wonderfully fast link — the same
+// number for every member, measuring nothing. The first rule of both output
+// chains is `meta mark <mark> return`, put there so the core's own upstream
+// connections are not fed back into the core; a measurement of the path to the
+// server belongs on the same side of that rule.
+func dialLatency(mark int) func(string) (int, bool) {
+	d := net.Dialer{Timeout: latencyTimeout, Control: netmark.Control(mark)}
+	return func(addr string) (int, bool) {
+		start := time.Now()
+		c, err := d.Dial("tcp", addr)
+		if err != nil {
+			return 0, false
+		}
+		_ = c.Close()
+		ms := int(time.Since(start).Milliseconds())
+		// A handshake that appears to take no time at all still took some:
+		// report the smallest number the unit can carry rather than zero,
+		// which the interface would have to treat as "not measured".
+		if ms < 1 {
+			ms = 1
+		}
+		return ms, true
 	}
-	_ = c.Close()
-	ms := int(time.Since(start).Milliseconds())
-	// A handshake that appears to take no time at all still took some: report
-	// the smallest number the unit can carry rather than zero, which the
-	// interface would have to treat as "not measured".
-	if ms < 1 {
-		ms = 1
-	}
-	return ms, true
 }

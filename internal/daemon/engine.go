@@ -1069,11 +1069,12 @@ func (e *Engine) startStatsLocked() {
 	if e.group != nil && len(e.members) > 0 {
 		members := append([]model.Profile(nil), e.members...)
 		askBalancer := e.group.Strategy.HealthAware()
-		// With the router's own traffic proxied, a dial to a server's address
-		// is captured like everything else and completed by the server
-		// connecting to itself. It comes back in about two milliseconds and
-		// reads as a wonderfully fast link. Better no column than that one.
-		measure := !e.settings.ProxyRouter
+		// The measuring socket carries the core's own firewall mark, so it
+		// escapes the capture rules the way the core's outbounds do. Without
+		// that, with the router's own traffic proxied, every member would
+		// measure about two milliseconds — the time for the tunnel to hand
+		// the connection back to the server that opened it.
+		dial := dialLatency(e.settings.MarkValue())
 		server := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 		e.memberOrder = nil
 		e.memberPing = nil
@@ -1083,9 +1084,7 @@ func (e *Engine) startStatsLocked() {
 			if askBalancer {
 				e.refreshBalancer(bin, server)
 			}
-			if measure {
-				e.refreshLatency(members)
-			}
+			e.refreshLatency(members, dial)
 			ask := time.NewTicker(balancerInterval)
 			ping := time.NewTicker(latencyEvery)
 			defer ask.Stop()
@@ -1099,9 +1098,7 @@ func (e *Engine) startStatsLocked() {
 						e.refreshBalancer(bin, server)
 					}
 				case <-ping.C:
-					if measure {
-						e.refreshLatency(members)
-					}
+					e.refreshLatency(members, dial)
 				}
 			}
 		}()

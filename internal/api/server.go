@@ -1079,6 +1079,11 @@ func (s *Server) selfTest(w http.ResponseWriter, r *http.Request) {
 		// traffic captured, this daemon's probes are captured too, and the
 		// unproxied legs would measure the tunnel while claiming not to.
 		ProxyRouter: data.Settings.ProxyRouter && st.Connected,
+		// Which is what this undoes. The capture rules let the core's own
+		// sockets past — they have to, or the core could not reach its server
+		// — and a probe wearing the same mark is on that side of the rule, so
+		// the legs that are supposed to go around the tunnel really do.
+		Mark: data.Settings.MarkValue(),
 	}
 	// The active server is measured on its own, which is what separates "the
 	// link to the server is bad" from "the server's own network is bad".

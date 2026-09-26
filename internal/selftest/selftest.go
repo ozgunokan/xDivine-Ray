@@ -25,6 +25,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"xwrt/internal/netmark"
 )
 
 // DefaultTarget is an address rather than a name on purpose: a name would put
@@ -112,10 +114,18 @@ type Options struct {
 	ServerAddr string
 	// Target is dialled both ways.
 	Target string
-	// ProxyRouter says the router's own traffic is captured. It changes what
-	// can be measured at all: see SkipProxyRouter.
+	// ProxyRouter says the router's own traffic is captured. On its own that
+	// would mean nothing here can be measured unproxied: see SkipProxyRouter.
 	ProxyRouter bool
-	Rounds      int
+	// Mark is the core's firewall mark. A probe socket wearing it is treated
+	// as the core's own and left alone by the capture rules, which is what
+	// lets the unproxied legs stay unproxied even with ProxyRouter set.
+	//
+	// Zero means the mark could not be determined, and then ProxyRouter still
+	// costs the comparison — the numbers that come out of measuring a captured
+	// connection and calling it direct look like an answer.
+	Mark   int
+	Rounds int
 	// Budget bounds the whole run. A leg that is timing out would otherwise
 	// take rounds×timeout seconds, and the web interface's RPC call gives up
 	// long before that — an incomplete answer beats no answer at all.
@@ -151,9 +161,13 @@ func Run(o Options) *Report {
 	// leaves its unused time to the ones after it, and the tunnel — the leg
 	// anyone actually opened this page for — is measured last so it inherits
 	// whatever is left.
-	// With the router proxied there is one leg, and it gets the whole budget.
+	// Whether anything can be measured outside the tunnel. With the router's
+	// own traffic captured that takes the mark; without the mark it cannot be
+	// done at all and only the tunnel is measured.
+	unproxied := !o.ProxyRouter || o.Mark > 0
+
 	legs := 1
-	if !o.ProxyRouter {
+	if unproxied {
 		legs = 2
 		if o.ServerAddr != "" {
 			legs = 3
@@ -170,7 +184,7 @@ func Run(o Options) *Report {
 		return time.Now().Add(d)
 	}
 
-	if o.ProxyRouter {
+	if !unproxied {
 		// Both unproxied legs are skipped, not just the obvious one. The
 		// server leg looks the most innocent and is the most misleading: a
 		// dial to the server's own address is captured like everything else,
@@ -180,9 +194,11 @@ func Run(o Options) *Report {
 		rep.SkipCode = SkipProxyRouter
 	}
 
-	if o.ServerAddr != "" && !o.ProxyRouter {
+	direct := directDialer(o.Mark)
+
+	if o.ServerAddr != "" && unproxied {
 		rep.Server = measure("server", o.Rounds, share(), func() error {
-			c, err := net.DialTimeout("tcp", o.ServerAddr, 5*time.Second)
+			c, err := direct.Dial("tcp", o.ServerAddr)
 			if err != nil {
 				return err
 			}
@@ -190,9 +206,9 @@ func Run(o Options) *Report {
 		})
 	}
 
-	if !o.ProxyRouter {
+	if unproxied {
 		rep.Direct = measure("direct", o.Rounds, share(), func() error {
-			c, err := net.DialTimeout("tcp", o.Target, 5*time.Second)
+			c, err := direct.Dial("tcp", o.Target)
 			if err != nil {
 				return err
 			}
@@ -212,6 +228,18 @@ func Run(o Options) *Report {
 
 	rep.VerdictCode, rep.Verdict = verdict(rep)
 	return rep
+}
+
+// directDialer builds the dialler for the legs that are supposed to go around
+// the tunnel.
+//
+// The mark is the whole of it: without it these sockets meet the daemon's own
+// capture rules, and the "direct" leg measures the tunnel while the report
+// calls it the baseline. With ProxyRouter unset there is nothing to escape and
+// the mark changes nothing, so it is set either way rather than being one more
+// condition to get wrong.
+func directDialer(mark int) net.Dialer {
+	return net.Dialer{Timeout: 5 * time.Second, Control: netmark.Control(mark)}
 }
 
 // measure runs one leg and summarises it, stopping early if the leg has used up

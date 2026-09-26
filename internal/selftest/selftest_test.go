@@ -246,7 +246,9 @@ func itoa(n int) string {
 // there by the server connecting to itself, which comes back in about two
 // milliseconds and reads as a superb link.
 //
-// The fix is to measure neither and say why.
+// The first fix was to measure neither and say why. That is still what
+// happens when there is no mark to put on the probe socket — see the test
+// after this one for what happens when there is.
 func TestProxiedRouterMeasuresNothingItCannotMeasure(t *testing.T) {
 	rep := Run(Options{
 		SocksAddr:   "127.0.0.1:1", // nothing there; the tunnel leg will fail
@@ -267,6 +269,58 @@ func TestProxiedRouterMeasuresNothingItCannotMeasure(t *testing.T) {
 	}
 	if rep.SkipCode != SkipProxyRouter {
 		t.Errorf("nothing says why the legs are missing: skip_code = %q", rep.SkipCode)
+	}
+}
+
+// With a mark, the comparison comes back.
+//
+// Skipping was never the point; it was the honest answer to a measurement that
+// could not be made. It can be made: the capture rules already let the core's
+// own sockets past, because the core has to reach its server — the first line
+// of both output chains is `meta mark <mark> return`, and TUN mode has an
+// `ip rule` to match. A probe wearing that mark is on the same side of the
+// rule, so the leg it measures really is the one around the tunnel.
+//
+// Without this the whole page goes dark for anyone who proxies the router
+// itself, which is not a rare setting and not a reason to answer nothing.
+func TestAMarkedProbeCanStillMeasureAroundTheTunnel(t *testing.T) {
+	rep := Run(Options{
+		SocksAddr:   "127.0.0.1:1",
+		ServerAddr:  "127.0.0.1:1",
+		Target:      "127.0.0.1:1",
+		ProxyRouter: true,
+		Mark:        0x1e0,
+		Rounds:      2,
+		Budget:      2 * time.Second,
+	})
+
+	if rep.Direct == nil {
+		t.Error("the direct leg was still skipped, so the page still has " +
+			"nothing to compare the tunnel against")
+	}
+	if rep.Server == nil {
+		t.Error("the server leg was still skipped, so \"the link to the " +
+			"server is bad\" cannot be told from \"the server's network is bad\"")
+	}
+	if rep.SkipCode != "" {
+		t.Errorf("skip_code = %q on a run that measured everything; the page "+
+			"would explain an absence that is not there", rep.SkipCode)
+	}
+}
+
+func TestTheUnproxiedLegsGoOutMarked(t *testing.T) {
+	// The check above can only see that the legs ran. Whether they escaped
+	// the capture rules is a property of the socket, and on a machine with no
+	// such rules the measurement looks the same either way — so the hook that
+	// sets the mark is asserted directly. Without it these legs run and
+	// measure the tunnel under the name "direct", which is worse than
+	// skipping them.
+	if directDialer(0x1e0).Control == nil {
+		t.Error("the unproxied legs dial with an unmarked socket, so with the " +
+			"router proxied they measure the tunnel and call it the baseline")
+	}
+	if directDialer(0).Control != nil {
+		t.Error("a hook was installed for a mark of zero, which means no mark")
 	}
 }
 

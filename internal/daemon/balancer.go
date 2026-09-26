@@ -169,8 +169,8 @@ func (e *Engine) refreshBalancer(bin, server string) {
 }
 
 // refreshLatency times a handshake to each member's server.
-func (e *Engine) refreshLatency(members []model.Profile) {
-	got := measureMembers(members, dialLatency)
+func (e *Engine) refreshLatency(members []model.Profile, dial func(string) (int, bool)) {
+	got := measureMembers(members, dial)
 
 	e.mu.Lock()
 	e.memberPing = got
