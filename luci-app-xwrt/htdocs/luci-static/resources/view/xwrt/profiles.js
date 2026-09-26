@@ -274,6 +274,7 @@ return view.extend({
 		var strategy = E('select', { 'class': 'cbi-input-select', 'style': 'width:100%' }, [
 			E('option', { 'value': 'leastPing' }, _('Lowest ping — fastest server, with failover')),
 			E('option', { 'value': 'leastLoad' }, _('Least loaded — steadiest server, with failover')),
+			E('option', { 'value': 'balance' }, _('Share the load — spread across every server that answers, with failover')),
 			E('option', { 'value': 'random' }, _('Random — spreads the load, no failover')),
 			E('option', { 'value': 'roundRobin' }, _('In turn — uses the servers one after another, no failover'))
 		]);
@@ -395,7 +396,7 @@ return view.extend({
 				E('div', { 'class': 'cbi-value-field' }, [
 					strategy,
 					E('div', { 'class': 'cbi-value-description' },
-						_('Only the failover strategies notice that a server has gone down. Random and in-turn keep sending connections to a dead one.'))
+						_('Only the failover strategies notice that a server has gone down. Random and in-turn keep sending connections to a dead one. Sharing the load spreads connections like they do, but drops a server that stops answering — note that consecutive requests then leave from different addresses, which some sites treat as a hijacked session.'))
 				])
 			]),
 			E('div', { 'class': 'cbi-value' }, [

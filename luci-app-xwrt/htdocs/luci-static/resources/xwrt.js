@@ -548,6 +548,7 @@ return baseclass.extend({
 		switch (st) {
 		case 'leastPing':   return _('fastest server, with failover');
 		case 'leastLoad':   return _('steadiest server, with failover');
+		case 'balance':     return _('load shared, with failover');
 		case 'random':      return _('random, no failover');
 		case 'roundRobin':  return _('in turn, no failover');
 		default:            return st || '';

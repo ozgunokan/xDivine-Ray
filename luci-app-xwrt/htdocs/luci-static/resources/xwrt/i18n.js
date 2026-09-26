@@ -180,8 +180,17 @@ var TR = {
 		"Ad",
 	"Strategy":
 		"Strateji",
-	"Only the failover strategies notice that a server has gone down. Random and in-turn keep sending connections to a dead one.":
-		"Sunucunun düştüğünü yalnızca yedeklemeli stratejiler fark eder. Rastgele ve sırayla seçenekleri, ölü bir sunucuya bağlantı göndermeyi sürdürür.",
+	"Only the failover strategies notice that a server has gone down. Random and in-turn keep sending connections to a dead one. Sharing the load spreads connections like they do, but drops a server that stops answering — note that consecutive requests then leave from different addresses, which some sites treat as a hijacked session.":
+		"Sunucunun düştüğünü yalnızca yedeklemeli stratejiler fark eder. " +
+		"Rastgele ve sırayla seçenekleri, ölü bir sunucuya bağlantı " +
+		"göndermeyi sürdürür. Yükü paylaştır seçeneği de bağlantıları " +
+		"onlar gibi dağıtır ama cevap vermeyen sunucuyu listeden düşürür — " +
+		"şunu bilerek seçin: ardışık istekler o zaman farklı adreslerden " +
+		"çıkar ve bazı siteler bunu oturum kaçırma sayar.",
+	"Share the load — spread across every server that answers, with failover":
+		"Yükü paylaştır — cevap veren bütün sunuculara dağıt, yedeklemeli",
+	"load shared, with failover":
+		"yük paylaştırılmış, yedeklemeli",
 	"Health check":
 		"Sağlık yoklaması",
 	"Health check address":

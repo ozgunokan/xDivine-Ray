@@ -182,4 +182,41 @@ check('a group with no members is still refused for having no members',
 	sent === null && (global.NOTIFICATIONS[0].node.textContent || '')
 		.indexOf('sunucu') >= 0);
 
+// 9. Sharing the load is a strategy in the same list as the others, not a
+//    number hidden somewhere. It is the core's leastLoad with every member as
+//    a candidate, and the daemon does that translation — from here it has to
+//    be saved under its own name or the daemon cannot tell it from "steadiest
+//    server", which is the same core strategy narrowed to one.
+d = dialog(null);
+var strategies = null;
+d.body.querySelectorAll('select').forEach(function(el) {
+	el.querySelectorAll('option').forEach(function(o) {
+		if (o.value === 'leastPing') strategies = el;
+	});
+});
+check('the strategy list is there', !!strategies);
+if (strategies) {
+	var names = strategies.querySelectorAll('option').map(function(o) { return o.value; });
+	check('sharing the load is one of the choices', names.indexOf('balance') >= 0);
+	check('and the others are still there',
+		names.indexOf('leastLoad') >= 0 && names.indexOf('random') >= 0 &&
+		names.indexOf('roundRobin') >= 0);
+	check('the choice says what it does, not just its name',
+		(strategies.textContent || '').indexOf('paylaştır') >= 0);
+}
+
+d.field.value = 'https://cp.cloudflare.com/generate_204';
+strategies.value = 'balance';
+d.body.querySelectorAll('input[type=checkbox]')[0].checked = true;
+sent = d.save();
+check('and it is saved under its own name',
+	sent && sent.strategy === 'balance');
+
+// The warning that comes with it. Spreading connections means consecutive
+// requests leave from different addresses, and the sites that tie a session to
+// an address treat that as a hijack — which is the one thing someone turning
+// this on should know before they turn it on, not after.
+check('the dialog warns what sharing the load costs',
+	(d.body.textContent || '').indexOf('oturum kaçırma') >= 0);
+
 process.exit(fail);

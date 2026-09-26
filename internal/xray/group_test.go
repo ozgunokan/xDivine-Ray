@@ -248,3 +248,87 @@ func TestAChosenProbeURLReachesTheCore(t *testing.T) {
 		t.Errorf("burst probe destination = %q, want %q", got, chosen)
 	}
 }
+
+// Sharing the load is the core's leastLoad strategy with the candidate count
+// opened up.
+//
+// The core has one knob here and it is easy to get wrong in a way nothing
+// reports: leave `expected` out and the core reads it as one, so a setting
+// called "share the load" quietly uses a single server and looks like it is
+// working. The number is the entire feature.
+func TestSharingTheLoadOffersEveryMemberAsACandidate(t *testing.T) {
+	g := groupWith(model.StrategyBalance)
+	s := model.Defaults()
+	cfg, err := Build(Options{Group: g, Members: members(3), Settings: &s, Caps: AllFeatures()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(cfg.Routing.Balancers) != 1 {
+		t.Fatal("no balancer")
+	}
+	st := cfg.Routing.Balancers[0].Strategy
+	if st == nil || st.Type != string(model.StrategyLeastLoad) {
+		t.Fatalf("strategy = %+v; the core has no strategy of its own by this "+
+			"name, so it has to be written as the one it is built from", st)
+	}
+	if st.Settings == nil || st.Settings.Expected != 3 {
+		t.Fatalf("settings = %+v, want every member as a candidate; with "+
+			"expected left out the core narrows to one and the load is not "+
+			"shared at all", st.Settings)
+	}
+	// And it needs somewhere to get health from, or the core refuses to start.
+	if cfg.BurstObservatory == nil {
+		t.Error("no burst observatory, so the strategy has nothing to rank " +
+			"with and nothing to tell it a member has died")
+	}
+}
+
+func TestTheSteadiestServerIsStillOneServer(t *testing.T) {
+	// The same machinery, the other setting. If these two ever generate the
+	// same config, one of the two entries in the dialog is a lie.
+	g := groupWith(model.StrategyLeastLoad)
+	s := model.Defaults()
+	cfg, err := Build(Options{Group: g, Members: members(3), Settings: &s, Caps: AllFeatures()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	st := cfg.Routing.Balancers[0].Strategy
+	if st.Settings == nil || st.Settings.Expected != 1 {
+		t.Fatalf("settings = %+v, want one candidate", st.Settings)
+	}
+}
+
+func TestSharingTheLoadDropsAMemberThatDies(t *testing.T) {
+	// This is what it has over random and round-robin, and it comes from the
+	// fallback plus the observatory rather than from the strategy name.
+	g := groupWith(model.StrategyBalance)
+	s := model.Defaults()
+	cfg, err := Build(Options{Group: g, Members: members(2), Settings: &s, Caps: AllFeatures()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if cfg.Routing.Balancers[0].FallbackTag == "" {
+		t.Error("no fallback, so a round where every member is failing has " +
+			"nowhere to go")
+	}
+}
+
+func TestTheStrategiesWithoutSettingsSendNone(t *testing.T) {
+	// random and roundRobin take no settings. Sending an empty object would
+	// be harmless today and is exactly the sort of thing a core tightens up.
+	for _, st := range []model.Strategy{model.StrategyRandom, model.StrategyRoundRobin} {
+		g := groupWith(st)
+		s := model.Defaults()
+		cfg, err := Build(Options{Group: g, Members: members(2), Settings: &s, Caps: AllFeatures()})
+		if err != nil {
+			t.Fatalf("%s: Build: %v", st, err)
+		}
+		bs := cfg.Routing.Balancers[0].Strategy
+		if bs.Type != string(st) {
+			t.Errorf("%s: strategy type = %q", st, bs.Type)
+		}
+		if bs.Settings != nil {
+			t.Errorf("%s: settings = %+v, want none", st, bs.Settings)
+		}
+	}
+}

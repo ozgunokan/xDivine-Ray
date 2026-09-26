@@ -1314,7 +1314,17 @@ func (e *Engine) memberUsageAt(now time.Time) ([]model.MemberUsage, []string) {
 			// The core answered, so the counters are not consulted at all:
 			// under a health-aware strategy they say every member is busy in
 			// turn, because the health check goes through each of them.
-			u.Live = rank[tag] == 1
+			//
+			// What the answer means depends on the strategy. The ones that
+			// pick a server hand the next connection to the first in the list.
+			// The ones that share the load roll a die across the whole list,
+			// so every member in it is in use and naming only the first would
+			// be a neater answer than the true one.
+			if e.group.Strategy.Spreads() {
+				u.Live = rank[tag] > 0
+			} else {
+				u.Live = rank[tag] == 1
+			}
 		} else {
 			u.Live = e.liveAt(tag, now)
 		}

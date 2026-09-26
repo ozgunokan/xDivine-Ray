@@ -130,7 +130,23 @@ type Balancer struct {
 }
 
 type BalancerStrategy struct {
-	Type string `json:"type"`
+	Type     string            `json:"type"`
+	Settings *StrategySettings `json:"settings,omitempty"`
+}
+
+// StrategySettings configures the core's leastLoad strategy.
+//
+// Only Expected is set. It is how many candidates the strategy narrows to
+// before it picks one of them at random, and it is the whole difference
+// between two settings that share this machinery: one means "the steadiest
+// server", the other means "share the load".
+//
+// Left out entirely, the core reads it as one — which is why it has to be
+// written even for the single-server case. A strategy called "least loaded"
+// that silently behaves like "least ping" is the kind of thing nobody notices
+// for a year.
+type StrategySettings struct {
+	Expected int `json:"expected"`
 }
 
 // accessLog decides whether the core writes a line per connection.
@@ -558,7 +574,10 @@ func Build(o Options) (*Config, error) {
 				ProbeURL:        o.Group.ProbeURL,
 				ProbeInterval:   o.Group.ProbeInterval,
 			}
-		case model.StrategyLeastLoad:
+		case model.StrategyLeastLoad, model.StrategyBalance:
+			// Both are the core's leastLoad strategy, so both need the burst
+			// observatory it reads from. Emitting the wrong one — or none —
+			// makes the core refuse to start with an unresolved dependency.
 			cfg.BurstObservatory = &BurstObservatory{
 				SubjectSelector: []string{TagProxyPrefix},
 				PingConfig: &PingConfig{
@@ -760,7 +779,7 @@ func buildGroupOutbounds(g *model.Group, members []model.Profile, mark int, caps
 	bal := &Balancer{
 		Tag:      TagBalancer,
 		Selector: []string{TagProxyPrefix},
-		Strategy: &BalancerStrategy{Type: string(g.Strategy)},
+		Strategy: strategyFor(g.Strategy, len(outs)),
 	}
 	// A fallback only means something when the balancer knows which members
 	// are down, which is to say when a health-aware strategy is in use.
@@ -768,6 +787,37 @@ func buildGroupOutbounds(g *model.Group, members []model.Profile, mark int, caps
 		bal.FallbackTag = outs[0].Tag
 	}
 	return outs, bal, nil
+}
+
+// strategyFor names the core's strategy and how many members it may use.
+//
+// Two of this project's settings are the core's one leastLoad strategy with a
+// different candidate count: "steadiest server" is one, "share the load" is
+// all of them. The core has no name for the second, so the translation happens
+// here rather than being a thing the operator has to know.
+func strategyFor(st model.Strategy, members int) *BalancerStrategy {
+	switch st {
+	case model.StrategyBalance:
+		if members < 1 {
+			members = 1
+		}
+		// Every member that is answering. The core clamps this to however many
+		// are actually available, and dead ones are not among them — that is
+		// what this has over random and round-robin.
+		return &BalancerStrategy{
+			Type:     string(model.StrategyLeastLoad),
+			Settings: &StrategySettings{Expected: members},
+		}
+	case model.StrategyLeastLoad:
+		// Written out rather than left to the default, so the config says what
+		// it means: one candidate, the steadiest.
+		return &BalancerStrategy{
+			Type:     string(model.StrategyLeastLoad),
+			Settings: &StrategySettings{Expected: 1},
+		}
+	default:
+		return &BalancerStrategy{Type: string(st)}
+	}
 }
 
 func buildProxyOutbound(p *model.Profile, tag string, mark int, caps Capabilities,

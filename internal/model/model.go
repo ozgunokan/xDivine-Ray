@@ -349,11 +349,25 @@ const (
 	// StrategyRoundRobin cycles through members in order, with the same
 	// caveat as random.
 	StrategyRoundRobin Strategy = "roundRobin"
+	// StrategyBalance spreads connections across every member that is
+	// answering, and only those.
+	//
+	// It is the same machinery as StrategyLeastLoad — the core's leastLoad
+	// strategy picks a set of candidates and then rolls a die among them — with
+	// the set opened up to everything healthy instead of narrowed to one. That
+	// is the difference between "the steadiest server" and "share the load",
+	// and it is one number in the generated config.
+	//
+	// What it buys over random and round-robin is the health check: those two
+	// keep handing connections to a server that has stopped answering, because
+	// nothing is watching. This one drops it.
+	StrategyBalance Strategy = "balance"
 )
 
 // Strategies lists every strategy, health-aware ones first.
 func Strategies() []Strategy {
-	return []Strategy{StrategyLeastPing, StrategyLeastLoad, StrategyRandom, StrategyRoundRobin}
+	return []Strategy{StrategyLeastPing, StrategyLeastLoad, StrategyBalance,
+		StrategyRandom, StrategyRoundRobin}
 }
 
 // Valid reports whether st is a known strategy.
@@ -369,7 +383,19 @@ func (st Strategy) Valid() bool {
 // HealthAware reports whether the strategy reacts to a member going down.
 // Only these give failover; the others merely spread load.
 func (st Strategy) HealthAware() bool {
-	return st == StrategyLeastPing || st == StrategyLeastLoad
+	return st == StrategyLeastPing || st == StrategyLeastLoad ||
+		st == StrategyBalance
+}
+
+// Spreads reports whether the strategy uses more than one member at a time.
+//
+// It decides what the Status page may claim. Under the strategies that pick
+// one, naming one is the answer; under these, naming one would be a tidier
+// answer than the truth — several members really are carrying traffic, and the
+// page has no business choosing a favourite among them.
+func (st Strategy) Spreads() bool {
+	return st == StrategyBalance || st == StrategyRandom ||
+		st == StrategyRoundRobin
 }
 
 // Describe returns a one-line summary for the UI and logs.
@@ -383,6 +409,8 @@ func (st Strategy) Describe() string {
 		return "spread connections at random, no failover"
 	case StrategyRoundRobin:
 		return "cycle through members in order, no failover"
+	case StrategyBalance:
+		return "share the load across every server that is answering"
 	default:
 		return string(st)
 	}

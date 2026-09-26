@@ -235,3 +235,59 @@ func TestTheMarkComesFromTheSameSettingTheRulesUse(t *testing.T) {
 		t.Error("a configured mark produced no socket hook")
 	}
 }
+
+// Sharing the load means more than one member really is in use.
+//
+// Under the strategies that pick a server, the first tag the core returns is
+// the answer. Under the ones that share, the core returns the whole set it
+// rolls a die across — every one of them is carrying connections, and naming
+// only the first would be a neater answer than the true one.
+
+func TestSharingTheLoadNamesEveryMemberInTheRotation(t *testing.T) {
+	e := groupEngine("bir", "iki", "üç")
+	e.group.Strategy = model.StrategyBalance
+	e.memberOrder = []string{tag(0), tag(2)}
+
+	usage, live := e.memberUsageAt(t0)
+	if len(live) != 2 || live[0] != "bir" || live[1] != "üç" {
+		t.Fatalf("live = %v, want both members the balancer is using", live)
+	}
+	if !usage[0].Live || !usage[2].Live {
+		t.Error("a member in the rotation was not marked as in use")
+	}
+	if usage[1].Live {
+		t.Error("a member the balancer dropped was called in use")
+	}
+}
+
+func TestPickingAServerStillNamesOne(t *testing.T) {
+	// The other half of the same rule. If sharing leaked into leastPing, the
+	// page would name every healthy server as "in use" under a strategy that
+	// uses exactly one.
+	e := groupEngine("bir", "iki", "üç")
+	e.group.Strategy = model.StrategyLeastPing
+	e.memberOrder = []string{tag(0), tag(2)}
+
+	_, live := e.memberUsageAt(t0)
+	if len(live) != 1 || live[0] != "bir" {
+		t.Fatalf("live = %v, want only the first: leastPing hands the next "+
+			"connection to one server", live)
+	}
+}
+
+func TestTheStrategiesThatShareAreTheOnesThatSayTheyDo(t *testing.T) {
+	for _, st := range []model.Strategy{
+		model.StrategyBalance, model.StrategyRandom, model.StrategyRoundRobin,
+	} {
+		if !st.Spreads() {
+			t.Errorf("%s does not report that it uses several members at once", st)
+		}
+	}
+	for _, st := range []model.Strategy{
+		model.StrategyLeastPing, model.StrategyLeastLoad,
+	} {
+		if st.Spreads() {
+			t.Errorf("%s reports sharing, but it picks one server", st)
+		}
+	}
+}
