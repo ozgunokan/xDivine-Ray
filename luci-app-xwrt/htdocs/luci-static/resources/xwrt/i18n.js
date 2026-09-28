@@ -311,8 +311,40 @@ var TR = {
 		"%s tarafından verildi, %s tarihinde doluyor",
 	"OK":
 		"Tamam",
+	"Download a backup":
+		"Yedeği indir",
+	"Load a backup file…":
+		"Yedek dosyası yükle…",
+	"A backup file is this document and nothing else, so it can be restored from here or with \"xwrt restore\". Loading a file only fills the box — press Check, then Save. It does not carry the firewall or anything else outside this app.":
+		"Yedek dosyası tam olarak bu belgedir, başka bir şey değil; bu yüzden buradan ya da `xwrt restore` ile geri yüklenebilir. Dosya yüklemek yalnızca kutuyu doldurur — Denetle, sonra Kaydet. Güvenlik duvarını ya da bu uygulamanın dışındaki hiçbir şeyi taşımaz.",
+	"Idle connection timeout":
+		"Boşta bağlantı zaman aşımı",
+	"Seconds a connection may carry nothing before the core closes it. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. Lower it only if you know why.":
+		"Bir bağlantının, çekirdek onu kapatmadan önce kaç saniye hiçbir şey taşımadan durabileceği. Telefonlar bildirim sunucusuna açtıkları tek bağlantıyı saatlerce hiçbir şey göndermeden açık tutar; o bağlantıyı kapatmak bildirimlerin geç gelmesine ya da hiç gelmemesine yol açar. Ne yaptığını biliyorsan düşür.",
 	"Certificate pinned":
 		"Sertifika sabitlendi",
+	"The certificate has changed":
+		"Sertifika değişti",
+	"%s is presenting a certificate other than the one pinned for it. Nothing has been changed.":
+		"%s, kendisi için sabitlenenden başka bir sertifika sunuyor. Hiçbir şey değiştirilmedi.",
+	"Pinned until now":
+		"Şimdiye kadar sabitli olan",
+	"Presented now":
+		"Şu an sunulan",
+	"Issued by %s":
+		"%s tarafından verildi",
+	"Valid %s → %s":
+		"Geçerlilik: %s → %s",
+	"Pin this certificate instead":
+		"Bunun yerine bu sertifikayı sabitle",
+	"Certificate changes":
+		"Sertifika değişimi",
+	"Accept a new certificate without asking, and keep the tunnel up.":
+		"Yeni sertifikayı sormadan kabul et, tünel ayakta kalsın.",
+	"This server is reached by address alone, so no certificate can be verified for it and the pin is the only thing standing anywhere. With this on, the pin follows whatever answers: the profile stops authenticating its server, and anything able to answer on this address and port is accepted. Every change is still written to the log.":
+		"Bu sunucuya yalnızca adresle ulaşılıyor; onun için hiçbir sertifika doğrulanamaz ve ayakta duran tek şey sabitlemedir. Bu açıkken sabitleme ne cevap verirse onu izler: profil sunucusunu doğrulamayı bırakır, bu adres ve porta cevap verebilen her şey kabul edilir. Her değişim yine de günlüğe yazılır.",
+	"This profile verifies %s, so a certificate that changes can be checked properly. Clearing the pin is the better answer here than accepting changes unseen.":
+		"Bu profil %s adını doğruluyor, yani değişen bir sertifika düzgün biçimde kontrol edilebilir. Burada doğru cevap, değişimi görmeden kabul etmek değil, sabitlemeyi kaldırmaktır.",
 	"Could not read the certificate: %s":
 		"Sertifika okunamadı: %s",
 	"Delete the server \"%s\"?":
@@ -1070,11 +1102,11 @@ var HINTS_TR = {
 	'hint.rejected_config': 'reddedilen yapılandırma %s dosyasında; kabul etmediği ayarın adını çekirdeğin yukarıdaki kendi mesajı veriyor',
 	'hint.port_change':     'ayarlardan %s değerini değiştirin ya da %s adresini dinleyen şeyi durdurun',
 
-	'hint.pinned_cert':       'bu sunucu profilinde sertifika sabitlenmiş; sunucu sertifikasını yenilediyse sabitlenen parmak izi artık tutmaz ve her bağlantı reddedilir. Güncel sertifikayı okumak için `xwrt fetch-cert %s` çalıştırıp yeniden bağlanın. Değilse hesabın hâlâ geçerli ve sunucunun ayakta olduğunu kontrol edin',
+	'hint.pinned_cert':       'bu profilde sertifika sabitlenmiş ve sunucu başka bir sertifika sunuyor, bu yüzden her bağlantı reddediliyor. Sunucular sayfasındaki Sabitle düğmesi — ya da `xwrt fetch-cert %s` — şu an sunulanı gösterir ve hiçbir şeyi değiştirmez: vereni ve geçerlilik tarihlerini oradan okuyun. Sertifika yalnızca saatler geçerliyse sunucu onu sürekli yeniliyordur ve sabitleme burada yanlış düzendir; sunucuya bir alan adı verip ona sertifika çıkarın. Tanıdığınız bir yenileme ise yeni sertifikayı onaylayın',
 	'hint.group_no_data':     'grubun hiçbir üyesi veri taşıyamadı; hesapların hâlâ geçerli ve sunucuların ayakta olduğunu kontrol edin',
 	'hint.check_credentials': 'kimlik bilgilerinin hâlâ geçerli ve sunucunun ayakta olduğunu kontrol edin; sebebi genelde çekirdeğin yukarıdaki son satırları söyler',
 
-	'hint.tun_kmod':           'kmod-tun kurun',
+	'hint.tun_kmod':           'OpenWrt üzerinde kmod-tun kurun; paket yöneticisi olmayan bir firmware\'de sürücünün çekirdekte hazır olması gerekir. Yönlendirme kipi TCP\'yi tünelsiz yakalar',
 	'hint.tun_hev':            'hev-socks5-tunnel kurun, ya da tünel gerektirmeyen redirect modunu kullanın',
 	'hint.tun_no_device':      'hev-socks5-tunnel başladı ama aygıtı hiç oluşturmadı; yukarıdaki satırlara ve /dev/net/tun\'un kullanılabilir olduğuna bakın',
 	'hint.tun_ip_full':        'ip-full paketini kurun',

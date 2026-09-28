@@ -206,17 +206,53 @@ func (d *DNS) applyConfDir(dir string) error {
 		"server=" + d.upstream() + "\n" +
 		"no-resolv\n"
 	path := filepath.Join(dir, dnsmasqConfName)
+
+	// Already saying exactly this? Then leave dnsmasq alone.
+	//
+	// Apply runs on every connect, and it used to rewrite the file and restart
+	// dnsmasq every time — even when the file it wrote was byte for byte the
+	// one already there. A restart is not free: dnsmasq serves DHCP as well as
+	// DNS on this platform, so for a moment the network has neither, and its
+	// cache is emptied, so every name on the network is looked up again at
+	// once — each one over the tunnel that has only just come back.
+	//
+	// On a link that reconnects a few times an hour that is a repeated,
+	// network-wide outage of a second or two, and the thing it breaks worst is
+	// the traffic that is most sensitive to a failed lookup: a phone whose push
+	// connection has dropped resolves the push server, fails, and backs off —
+	// and the back-off is measured in tens of minutes, which is why it shows up
+	// as notifications arriving late or not at all.
+	if same, err := fileHas(path, conf); err == nil && same {
+		d.applied = true
+		return nil
+	}
+
 	if err := os.WriteFile(path, []byte(conf), 0o644); err != nil {
 		return fmt.Errorf("write dnsmasq snippet: %w", err)
 	}
 	// Mark it applied before restarting so a failed restart still reverts.
 	d.applied = true
-	if err := restartDnsmasq(); err != nil {
+	if err := restartHook(); err != nil {
 		d.applied = false
 		_ = os.Remove(path)
 		return err
 	}
 	return nil
+}
+
+// fileHas reports whether the file already holds exactly this content.
+//
+// A missing file is not an error worth distinguishing here: it simply does not
+// hold the content, and the caller writes it.
+func fileHas(path, want string) (bool, error) {
+	got, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return string(got) == want, nil
 }
 
 // applyUCI edits the dhcp configuration, for builds that run dnsmasq without a
@@ -514,6 +550,10 @@ func (d *DNS) confDirForRevert() string {
 const localResolverBudget = 15 * time.Second
 
 const dnsmasqInit = "/etc/init.d/dnsmasq"
+
+// restartHook is what applyConfDir calls. A variable so a test can count the
+// restarts without a service manager; nothing else replaces it.
+var restartHook = restartDnsmasq
 
 func restartDnsmasq() error {
 	return restartDnsmasqWith(dnsmasqInit,

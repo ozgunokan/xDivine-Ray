@@ -109,6 +109,7 @@ func (s *Store) load() (*Data, error) {
 		st.TProxPort = toInt(m.Get("tproxy_port"), st.TProxPort)
 		st.DNSPort = toInt(m.Get("dns_port"), st.DNSPort)
 		st.APIPort = toInt(m.Get("api_port"), st.APIPort)
+		st.ConnIdle = toInt(m.Get("conn_idle"), st.ConnIdle)
 		st.StatsPort = toInt(m.Get("stats_port"), st.StatsPort)
 		if v := m.Get("dns"); v != "" {
 			st.DNS = v
@@ -189,6 +190,7 @@ func (s *Store) load() (*Data, error) {
 			SpiderX:       sec.Get("spx"),
 			AllowInsecure: toBool(sec.Get("allow_insecure"), false),
 			PinnedCert:    sec.Get("pinned_cert"),
+			PinAuto:       toBool(sec.Get("pin_auto"), false),
 			Path:          sec.Get("path"),
 			Host:          sec.Get("host"),
 			ServiceName:   sec.Get("service_name"),
@@ -268,6 +270,7 @@ func (s *Store) save(d *Data) error {
 	main.Set("tproxy_port", strconv.Itoa(st.TProxPort))
 	main.Set("dns_port", strconv.Itoa(st.DNSPort))
 	main.Set("api_port", strconv.Itoa(st.APIPort))
+	main.Set("conn_idle", strconv.Itoa(st.ConnIdle))
 	main.Set("stats_port", strconv.Itoa(st.StatsPort))
 	main.Set("dns", st.DNS)
 	main.Set("dns_mode", string(st.DNSMode))
@@ -337,6 +340,9 @@ func (s *Store) save(d *Data) error {
 			set("allow_insecure", "1")
 		}
 		set("pinned_cert", p.PinnedCert)
+		if p.PinAuto {
+			set("pin_auto", "1")
+		}
 		set("path", p.Path)
 		set("host", p.Host)
 		set("service_name", p.ServiceName)

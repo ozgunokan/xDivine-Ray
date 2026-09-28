@@ -7,6 +7,7 @@
 package mode
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -90,8 +91,8 @@ func (t *Tun) Start(bypassCIDRs []string) error {
 	if err := os.MkdirAll(s.RunDir, 0o755); err != nil {
 		return fmt.Errorf("run dir: %w", err)
 	}
-	if _, err := os.Stat("/dev/net/tun"); err != nil {
-		return fmt.Errorf("/dev/net/tun is missing: install kmod-tun")
+	if err := checkTunDevice(tunDevice); err != nil {
+		return err
 	}
 
 	t.configPath = filepath.Join(s.RunDir, "hev.yaml")
@@ -468,4 +469,49 @@ func hasAddress(name string) bool {
 		}
 	}
 	return false
+}
+
+// tunDevice is the character device the kernel's tunnel driver answers on.
+// A variable so a test can point at something else; nothing else changes it.
+var tunDevice = "/dev/net/tun"
+
+// checkTunDevice reports whether this kernel can give us a tunnel, and says
+// which way it cannot when it cannot.
+//
+// Opening it rather than stat-ing it. A stat answers "is there a name here",
+// and the name and the driver come apart in both directions: a kernel can ship
+// the node with no tun driver built in, which stats fine and fails with ENODEV
+// the moment anything opens it, and a kernel with the driver can be missing the
+// node until something creates it. The question being asked is "can this device
+// carry a tunnel", and the only honest way to ask it is to open the thing and
+// close it again.
+//
+// The three failures need three different answers, which is the other half of
+// why this exists. The old message said "install kmod-tun" to everyone —
+// including the owner of a firmware that has no package manager, no kmod-tun to
+// install and no way to act on the sentence at all.
+func checkTunDevice(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err == nil {
+		f.Close()
+		return nil
+	}
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("%s does not exist, so this kernel has no tunnel "+
+			"device. On OpenWrt that is the kmod-tun package; on a firmware "+
+			"with no package manager it means the driver is not in the kernel "+
+			"and TUN modes cannot work on this device. Redirect mode needs no "+
+			"tunnel", path)
+	case errors.Is(err, os.ErrPermission):
+		return fmt.Errorf("%s cannot be opened by this process: %w. The daemon "+
+			"has to run as root to make a tunnel", path, err)
+	default:
+		// ENODEV lands here, and it is the one worth spelling out: the node is
+		// present and nothing is behind it, which is the state that makes a
+		// device look equipped and behave as though it is not.
+		return fmt.Errorf("%s is present but cannot be opened: %w. The device "+
+			"node exists while the kernel's tunnel driver does not, so nothing "+
+			"can create a tunnel here. Redirect mode needs no tunnel", path, err)
+	}
 }

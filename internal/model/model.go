@@ -199,6 +199,20 @@ type Profile struct {
 	// AllowInsecure skips certificate verification. Newer cores have removed
 	// it; PinnedCert is the replacement and takes precedence when both are set.
 	AllowInsecure bool `json:"allow_insecure,omitempty"`
+	// PinAuto accepts a changed certificate without asking.
+	//
+	// It is off by default and Validate refuses it on any profile that could
+	// verify a certificate the ordinary way, because on such a profile it would
+	// throw away protection that was actually available. Where it is allowed —
+	// a bare address with no name behind it — there is nothing to verify
+	// against in the first place, and the operator is choosing to keep the
+	// tunnel up instead of being told the certificate moved.
+	//
+	// What it really means is worth writing down plainly, because the name does
+	// not say it: a profile with this on does not authenticate its server. The
+	// pin still changes, and it is still recorded, but anything that can answer
+	// on that address and port will be accepted.
+	PinAuto bool `json:"pin_auto,omitempty"`
 	// PinnedCert is the SHA-256 of the server's leaf certificate, as hex —
 	// optionally in the colon-separated form openssl prints. It authenticates
 	// that one certificate instead of trusting a CA, which is what makes a
@@ -281,7 +295,48 @@ func (p *Profile) Validate() error {
 	if p.Security == "reality" && p.PublicKey == "" {
 		return errors.New("reality needs a public key")
 	}
+	if p.PinAuto {
+		if p.Security != "tls" {
+			return errors.New("accepting a changed certificate automatically " +
+				"only applies to tls")
+		}
+		if name := p.VerifiableName(); name != "" {
+			return fmt.Errorf("this profile verifies %s, so a changed "+
+				"certificate can be checked properly and does not need to be "+
+				"accepted blindly. Clear the pin instead and let the "+
+				"certificate be verified the ordinary way", name)
+		}
+	}
 	return nil
+}
+
+// VerifiableName is the name this connection's certificate would be checked
+// against, or empty when there is none.
+//
+// This is what decides whether a certificate can be verified at all. An address
+// that is a bare IP, with no SNI or an SNI that is also an IP, leaves nothing to
+// check a certificate against: no name, so no authority can have issued one for
+// it, so a pin is the only thing standing anywhere. Everything else has a name,
+// and a name is enough to do this properly.
+//
+// The SNI comes first because that is what the core sends and therefore what
+// the far end answers for; the address is only the fallback the core itself
+// uses when no SNI is set.
+func (p *Profile) VerifiableName() string {
+	name := p.SNI
+	if name == "" {
+		name = p.Address
+	}
+	if name == "" || net.ParseIP(name) != nil {
+		return ""
+	}
+	return name
+}
+
+// CanAutoPin reports whether this profile is one where accepting a changed
+// certificate unseen is even an option to offer.
+func (p *Profile) CanAutoPin() bool {
+	return p.Security == "tls" && p.VerifiableName() == ""
 }
 
 // ALPNList splits the comma separated ALPN field.
@@ -568,9 +623,27 @@ type Settings struct {
 	// It does nothing in the other three modes, which carry UDP themselves.
 	BlockQUIC bool `json:"block_quic"`
 
-	XrayBin string `json:"xray_bin"`
-	HevBin  string `json:"hev_bin"`
-	RunDir  string `json:"run_dir"`
+	// ConnIdle is how many seconds a connection may carry no data before the
+	// core closes it.
+	//
+	// This is not a tuning knob, it is a correctness one, and the number that
+	// was hard-coded here was wrong. Half an hour sounds generous until you ask
+	// what is actually idle on a home network: a phone holds one connection to
+	// its push service open for as long as it is switched on, and sends
+	// nothing down it for hours. Close that connection and the phone does not
+	// find out — it learns at its next heartbeat, which on a sleeping phone can
+	// be a long time, and then backs off further after the failure. What the
+	// owner sees is notifications arriving late, or a message that is announced
+	// and then not there when they open the app.
+	//
+	// So the default is measured in hours, not minutes. An idle connection
+	// costs a socket and a small buffer; a household's worth of them is
+	// affordable even on the 128 MB floor this targets, and far cheaper than
+	// the alternative. 0 leaves the core's own default, which is 300 seconds.
+	ConnIdle int    `json:"conn_idle"`
+	XrayBin  string `json:"xray_bin"`
+	HevBin   string `json:"hev_bin"`
+	RunDir   string `json:"run_dir"`
 
 	// TUN mode parameters.
 	TunName string `json:"tun_name"`
@@ -638,15 +711,19 @@ func Defaults() Settings {
 		UpdateCheck: true,
 		UpdateRepo:  DefaultUpdateRepo,
 		IPv6:        false,
-		XrayBin:     "xray",
-		HevBin:      "hev-socks5-tunnel",
-		RunDir:      "/var/run/xwrt",
-		TunName:     "xwrt0",
-		TunAddr:     "198.18.0.1",
-		TunMask:     "255.255.0.0",
-		TunMTU:      8500,
-		FwMark:      "0x1e0",
-		RouteTable:  180,
+		// Four hours. Long enough that a phone's push connection survives a
+		// night, short enough that something genuinely abandoned is still
+		// cleaned up the same day.
+		ConnIdle:   14400,
+		XrayBin:    "xray",
+		HevBin:     "hev-socks5-tunnel",
+		RunDir:     "/var/run/xwrt",
+		TunName:    "xwrt0",
+		TunAddr:    "198.18.0.1",
+		TunMask:    "255.255.0.0",
+		TunMTU:     8500,
+		FwMark:     "0x1e0",
+		RouteTable: 180,
 	}
 }
 
@@ -688,6 +765,9 @@ func (s *Settings) Normalize() {
 	}
 	if s.LogLevel == "" {
 		s.LogLevel = d.LogLevel
+	}
+	if s.ConnIdle == 0 {
+		s.ConnIdle = d.ConnIdle
 	}
 	if s.XrayBin == "" {
 		s.XrayBin = d.XrayBin

@@ -194,18 +194,27 @@ type LevelPolicy struct {
 	ConnIdle int `json:"connIdle,omitempty"`
 }
 
-// connIdleSeconds is how long a connection may carry no data before the core
-// closes it. The core's own default is 300 seconds, which is wrong for a
-// general-purpose VPN: an SSH session left alone for five minutes is killed,
-// and because the transparent proxy terminates the client's TCP locally, the
-// client is told the *remote side* closed the connection. That sends whoever
-// is debugging it to the server, or to their ISP, and never here.
+// connIdleFor is how long a connection may carry no data before the core closes
+// it, in seconds.
 //
-// Half an hour is long enough for a terminal someone walked away from and
-// short enough that abandoned connections still get cleaned up. Idle
-// connections cost a socket and a small buffer, which is affordable even on
-// the 128 MB floor this targets.
-const connIdleSeconds = 1800
+// The core's own default is 300 seconds, which is wrong for a general-purpose
+// VPN: an SSH session left alone for five minutes is killed, and because the
+// transparent proxy terminates the client's TCP locally, the client is told the
+// *remote side* closed the connection. That sends whoever is debugging it to
+// the server, or to their ISP, and never here.
+//
+// This used to be a constant at half an hour, which was still wrong and in a
+// way that was much harder to see. A phone holds one connection to its push
+// service open for as long as it is switched on and sends nothing down it for
+// hours; half an hour closes it, the phone does not find out until its next
+// heartbeat, and the owner sees notifications arrive late or not at all. The
+// value now comes from the settings, where somebody can see it and change it.
+func connIdleFor(s *model.Settings) int {
+	if s.ConnIdle > 0 {
+		return s.ConnIdle
+	}
+	return model.Defaults().ConnIdle
+}
 
 type DNSConfig struct {
 	Servers       []any  `json:"servers"`
@@ -451,7 +460,7 @@ func Build(o Options) (*Config, error) {
 				StatsOutboundDownlink: true,
 			},
 			Levels: map[string]*LevelPolicy{
-				"0": {ConnIdle: connIdleSeconds},
+				"0": {ConnIdle: connIdleFor(s)},
 			},
 		},
 	}

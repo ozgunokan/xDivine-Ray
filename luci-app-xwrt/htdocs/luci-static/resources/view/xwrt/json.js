@@ -99,6 +99,43 @@ function send(view, check) {
 	}).catch(rpcProblem);
 }
 
+// --- backup and restore -----------------------------------------------------
+//
+// The file is the document, unchanged. No wrapper, no header, no format of its
+// own — so a backup can be restored by any path that already exists: this page,
+// the command line, the API. A wrapper would have to be stripped by every one
+// of them, and the first version of it that somebody hand-edited would be the
+// version nothing could read.
+//
+// What the file does not carry is anything that is not this app's: the
+// firewall, dnsmasq, the rest of the router. Those belong to OpenWrt's own
+// backup.
+
+// backupName is what the browser saves it as. The date and the version are in
+// the name because they are not in the file, and a folder of backups nobody can
+// tell apart is a folder of one backup.
+function backupName(config) {
+	var v = (config && config.settings && config.settings.version) || '';
+	var d = new Date();
+	function two(n) { return (n < 10 ? '0' : '') + n; }
+	var stamp = d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) +
+		'-' + two(d.getHours()) + two(d.getMinutes());
+	return 'xwrt-backup-' + (v ? v + '-' : '') + stamp + '.json';
+}
+
+// download hands the document to the browser as a file.
+function download(text, name) {
+	var blob = new Blob([text], { type: 'application/json' });
+	var url = URL.createObjectURL(blob);
+	var a = E('a', { 'href': url, 'download': name });
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	// Not immediately: Safari has been known to cancel a download whose object
+	// URL was revoked in the same tick.
+	window.setTimeout(function() { URL.revokeObjectURL(url); }, 30000);
+}
+
 return view.extend({
 	load: function() {
 		return xwrt.config().catch(function() { return null; });
@@ -156,11 +193,60 @@ return view.extend({
 								dom.content(document.getElementById('xwrt-json-report'), []);
 							}).catch(rpcProblem);
 						})
-					}, _('Reload from the device'))
+					}, _('Reload from the device')),
+
+					// Straight from the device rather than from the box: what
+					// gets backed up should be what is stored, not what someone
+					// has half-typed over it.
+					E('button', {
+						'class': 'cbi-button cbi-button-neutral',
+						'click': ui.createHandlerFn(self, function() {
+							return xwrt.config().then(function(c) {
+								download(pretty(c), backupName(c));
+							}).catch(rpcProblem);
+						})
+					}, _('Download a backup')),
+
+					// Loaded into the box rather than saved. The operator sees
+					// what is about to replace their device and presses Check
+					// or Save themselves — a file picker that writes straight
+					// to the router is one misclick from an empty device.
+					E('button', {
+						'class': 'cbi-button cbi-button-neutral',
+						'click': ui.createHandlerFn(self, function() {
+							var picker = document.getElementById('xwrt-json-file');
+							if (picker)
+								picker.click();
+						})
+					}, _('Load a backup file…')),
+
+					E('input', {
+						'type': 'file',
+						'id': 'xwrt-json-file',
+						'accept': '.json,application/json',
+						'style': 'display:none',
+						'change': function(ev) {
+							var f = ev.target.files && ev.target.files[0];
+							if (!f)
+								return;
+							var reader = new FileReader();
+							reader.onload = function() {
+								if (box())
+									box().value = String(reader.result);
+								report({ problems: [], loaded: true });
+							};
+							reader.readAsText(f);
+							// So picking the same file twice in a row fires.
+							ev.target.value = '';
+						}
+					})
 				]),
 
 				E('div', { 'style': 'margin-top:.6em;opacity:.75;font-size:92%' },
-					_('Check says whether the document would be accepted, without saving it. A section left out of the document is refused rather than obeyed — to empty one, give it an empty list.'))
+					_('Check says whether the document would be accepted, without saving it. A section left out of the document is refused rather than obeyed — to empty one, give it an empty list.')),
+
+				E('div', { 'style': 'margin-top:.4em;opacity:.75;font-size:92%' },
+					_('A backup file is this document and nothing else, so it can be restored from here or with "xwrt restore". Loading a file only fills the box — press Check, then Save. It does not carry the firewall or anything else outside this app.'))
 			])
 		]);
 	},

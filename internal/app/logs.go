@@ -298,39 +298,40 @@ func writeRaw(body []byte) error {
 // a pin records whatever answered, so the operator is the last line of defence
 // against pinning something that is intercepting the connection. Seeing the
 // issuer is how they notice.
-func runFetchCert(id string) error {
-	body, err := fetch(http.MethodPost, "/api/profiles/"+id+"/fetch-cert", nil)
+func runFetchCert(id string, replace bool) error {
+	path := "/api/profiles/" + id + "/fetch-cert"
+	if replace {
+		path += "?replace=1"
+	}
+	body, status, err := fetchRaw(http.MethodPost, path, nil)
+
+	var res certResult
+	// Parsed before the error is acted on: a refusal to overwrite an existing
+	// pin carries the certificate it found, and that certificate is the whole
+	// reason the refusal happened. Printing only the sentence would leave
+	// somebody with a device that will not connect and nothing to look at.
+	_ = json.Unmarshal(body, &res)
 	if err != nil {
-		return err
-	}
-	var res struct {
-		Pin       string `json:"pin"`
-		Endpoint  string `json:"endpoint"`
-		SNI       string `json:"sni"`
-		Trusted   bool   `json:"trusted"`
-		NameMatch bool   `json:"name_match"`
-		Chain     []struct {
-			Subject  string `json:"subject"`
-			Issuer   string `json:"issuer"`
-			NotAfter string `json:"not_after"`
-			SHA256   string `json:"sha256"`
-		} `json:"chain"`
-	}
-	if err := json.Unmarshal(body, &res); err != nil {
+		if status == http.StatusConflict && len(res.Found.Chain) > 0 {
+			fmt.Printf("This profile already pins a certificate:\n  %s\n\n"+
+				"The server is now presenting a different one:\n", res.CurrentPin)
+			printChain(res.Found)
+			if res.Nature.Note != "" {
+				fmt.Printf("\n%s\n", wrapWords(res.Nature.Note, 76))
+			}
+			fmt.Printf("\nNothing has been changed. If the certificate above is the "+
+				"server's own,\nrun `xwrt fetch-cert %s -replace` to trust it instead.\n", id)
+			return nil
+		}
 		return err
 	}
 
 	fmt.Printf("pinned %s (sni %s)\n", res.Endpoint, res.SNI)
-	for i, c := range res.Chain {
-		label := "leaf"
-		if i > 0 {
-			label = "ca  "
-		}
-		fmt.Printf("  %s  %s\n", label, c.Subject)
-		fmt.Printf("        issued by %s\n", c.Issuer)
-		fmt.Printf("        expires %s, sha256 %s\n", c.NotAfter, c.SHA256)
+	printChain(certFound{Endpoint: res.Endpoint, SNI: res.SNI, Chain: res.Chain,
+		Pin: res.Pin, Trusted: res.Trusted, NameMatch: res.NameMatch})
+	if res.Replaced {
+		fmt.Println("\nThe previous pin has been replaced.")
 	}
-	fmt.Printf("  pin   %s\n", res.Pin)
 	switch {
 	case !res.Trusted:
 		fmt.Println("\nNo public authority vouches for this certificate. That is normal for " +
@@ -343,6 +344,90 @@ func runFetchCert(id string) error {
 	default:
 		fmt.Println("\nThe certificate is publicly trusted and matches the SNI in use.")
 	}
+	if res.Nature.Note != "" {
+		fmt.Printf("\n%s\n", wrapWords(res.Nature.Note, 76))
+	}
+
 	fmt.Println("\nallowInsecure has been turned off for this profile. Connect again to use the pin.")
 	return nil
+}
+
+// certResult is the shape both answers share: the one that pinned something
+// and the one that refused to.
+type certResult struct {
+	Pin       string      `json:"pin"`
+	Endpoint  string      `json:"endpoint"`
+	SNI       string      `json:"sni"`
+	Trusted   bool        `json:"trusted"`
+	NameMatch bool        `json:"name_match"`
+	Replaced  bool        `json:"replaced"`
+	Chain     []certEntry `json:"chain"`
+
+	// Set only on the refusal.
+	CurrentPin string     `json:"current_pin"`
+	Found      certFound  `json:"found"`
+	Nature     certNature `json:"nature"`
+}
+
+type certFound struct {
+	Pin       string      `json:"pin"`
+	Endpoint  string      `json:"endpoint"`
+	SNI       string      `json:"sni"`
+	Trusted   bool        `json:"trusted"`
+	NameMatch bool        `json:"name_match"`
+	Chain     []certEntry `json:"chain"`
+}
+
+type certEntry struct {
+	Subject   string `json:"subject"`
+	Issuer    string `json:"issuer"`
+	NotBefore string `json:"not_before"`
+	NotAfter  string `json:"not_after"`
+	SHA256    string `json:"sha256"`
+}
+
+type certNature struct {
+	SelfSigned    bool   `json:"self_signed"`
+	LifetimeHours int    `json:"lifetime_hours"`
+	AgeHours      int    `json:"age_hours"`
+	Note          string `json:"note"`
+}
+
+func printChain(f certFound) {
+	for i, c := range f.Chain {
+		label := "leaf"
+		if i > 0 {
+			label = "ca  "
+		}
+		fmt.Printf("  %s  %s\n", label, c.Subject)
+		fmt.Printf("        issued by %s\n", c.Issuer)
+		// Both dates, because the pair is what explains a pin that stopped
+		// matching: ninety days is a renewal, twelve hours is a server that
+		// will do this again before lunch.
+		fmt.Printf("        valid %s → %s\n", c.NotBefore, c.NotAfter)
+		fmt.Printf("        sha256 %s\n", c.SHA256)
+	}
+	if f.Pin != "" {
+		fmt.Printf("  pin   %s\n", f.Pin)
+	}
+}
+
+// wrapWords breaks a sentence at a width, for a terminal that does not.
+func wrapWords(s string, width int) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return ""
+	}
+	out := words[0]
+	line := len(words[0])
+	for _, w := range words[1:] {
+		if line+1+len(w) > width {
+			out += "\n" + w
+			line = len(w)
+			continue
+		}
+		out += " " + w
+		line += 1 + len(w)
+	}
+	return out
 }

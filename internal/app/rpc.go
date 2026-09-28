@@ -187,13 +187,26 @@ func rpcMethods() map[string]rpcMethod {
 			},
 		},
 		"fetch_cert": {
-			Signature: map[string]any{"id": "str"},
+			Signature: map[string]any{"id": "str", "replace": "bool"},
 			Call: func(args map[string]any) ([]byte, error) {
 				id := str(args["id"])
 				if id == "" {
 					return nil, fmt.Errorf("id is required")
 				}
-				return fetch(http.MethodPost, "/api/profiles/"+id+"/fetch-cert", nil)
+				path := "/api/profiles/" + id + "/fetch-cert"
+				if truthy(args["replace"]) {
+					path += "?replace=1"
+				}
+				out, status, err := fetchRaw(http.MethodPost, path, nil)
+				// A refusal to overwrite an existing pin is not an error to
+				// flatten into a sentence: the body carries the certificate
+				// that caused it, and that certificate is the entire content
+				// of the question being put to the operator. Everything else
+				// keeps the old behaviour.
+				if status == http.StatusConflict && len(out) > 0 {
+					return out, nil
+				}
+				return out, err
 			},
 		},
 		"ping": {
@@ -370,6 +383,21 @@ func trimTrailingNewline(b []byte) []byte {
 		b = b[:len(b)-1]
 	}
 	return b
+}
+
+// truthy reads a flag that may arrive as a bool, a number or a string: ubus
+// argument types are what the caller declared, not what this wants.
+func truthy(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case float64:
+		return t != 0
+	case string:
+		return t == "1" || t == "true" || t == "yes"
+	default:
+		return false
+	}
 }
 
 func str(v any) string {

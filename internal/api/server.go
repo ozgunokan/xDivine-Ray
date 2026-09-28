@@ -119,6 +119,19 @@ func (s *Server) routes(mux *http.ServeMux) {
 // --- handlers ----------------------------------------------------------
 
 func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.status())
+}
+
+// status is the engine's state plus the two things the engine does not know.
+//
+// One function rather than three, because the difference showed. /api/connect
+// and /api/disconnect answer with a status too, and they answered with the
+// engine's raw one — so a client that drew its page from the connect reply
+// showed auto_connect as off on a device where it was on, and mentioned no
+// available update. On a line whose only route out is the tunnel, "does this
+// come back by itself after a power cut" is not a detail to get wrong in half
+// the replies.
+func (s *Server) status() model.Status {
 	st := s.engine.Status()
 	// Read from the stored configuration rather than the engine's copy: the
 	// engine only has one once something has connected, and this is worth
@@ -132,7 +145,7 @@ func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 		st.UpdateAvailable = true
 		st.UpdateVersion = u.Latest
 	}
-	writeJSON(w, http.StatusOK, st)
+	return st
 }
 
 func (s *Server) getEnv(w http.ResponseWriter, r *http.Request) {
@@ -419,6 +432,31 @@ func (s *Server) fetchCert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
+	nature := res.Describe(time.Now())
+
+	// Replacing a pin that is already there is a different act from taking the
+	// first one, and it is not done without being asked twice.
+	//
+	// The reason is the situation it happens in. A pin stops matching, every
+	// connection is refused, and the obvious thing to do is fetch the
+	// certificate again — which, if something on the path is what changed,
+	// pins that instead, and the tunnel comes back up through it looking
+	// perfectly healthy. The first pin is taken from a server nobody has any
+	// reason to doubt; the second is taken at the one moment there is a reason.
+	// So this hands back what it found and waits to be told again.
+	if p.PinnedCert != "" && p.PinnedCert != res.Pin && r.URL.Query().Get("replace") != "1" {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "this profile already pins a different certificate. Look at " +
+				"the issuer and the dates below, then repeat with replace=1 " +
+				"(`xwrt fetch-cert " + id + " -replace`) to trust this one instead",
+			"replaced":      false,
+			"current_pin":   p.PinnedCert,
+			"found":         res,
+			"nature":        nature,
+			"needs_replace": true,
+		})
+		return
+	}
 
 	if _, err := s.store.Update(func(d *ucicfg.Data) error {
 		target := d.Profile(id)
@@ -438,7 +476,15 @@ func (s *Server) fetchCert(w http.ResponseWriter, r *http.Request) {
 
 	s.log.Infof("pinned the certificate chain of %s (%s, sni %s)",
 		p.Label(), res.Endpoint, res.SNI)
-	writeJSON(w, http.StatusOK, res)
+	if nature.Note != "" {
+		s.log.Warnf("%s: %s", p.Label(), nature.Note)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pin": res.Pin, "endpoint": res.Endpoint, "sni": res.SNI,
+		"chain": res.Chain, "trusted": res.Trusted, "name_match": res.NameMatch,
+		"replaced": p.PinnedCert != "" && p.PinnedCert != res.Pin,
+		"nature":   nature,
+	})
 }
 
 // pending marks a response whose change is stored but not yet running.
@@ -911,7 +957,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.engine.Status())
+	writeJSON(w, http.StatusOK, s.status())
 }
 
 func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
@@ -919,7 +965,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.engine.Status())
+	writeJSON(w, http.StatusOK, s.status())
 }
 
 func (s *Server) reapplyFirewall(w http.ResponseWriter, r *http.Request) {

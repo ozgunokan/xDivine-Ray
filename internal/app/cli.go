@@ -135,10 +135,10 @@ func RunCLI(argv []string) int {
 
 	case "fetch-cert":
 		if len(args) == 0 {
-			err = fmt.Errorf("usage: xwrt fetch-cert <profile-id>")
+			err = fmt.Errorf("usage: xwrt fetch-cert <profile-id> [-replace]")
 			break
 		}
-		err = runFetchCert(args[0])
+		err = runFetchCert(args[0], hasFlag(args, "-replace"))
 
 	case "ping":
 		if len(args) == 0 {
@@ -211,6 +211,16 @@ func RunCLI(argv []string) int {
 
 	case "set":
 		err = setSettings(args)
+
+	case "backup":
+		err = runBackup(args)
+
+	case "restore":
+		if len(args) == 0 {
+			err = fmt.Errorf("usage: xwrt restore <file>")
+			break
+		}
+		err = runRestore(args[0])
 
 	case "rpc-list":
 		err = rpcList()
@@ -455,18 +465,27 @@ func request(method, path string, body any) error {
 	return nil
 }
 
+// fetch is the ordinary call: anything from 400 up comes back as an error
+// carrying the daemon's own sentence.
 func fetch(method, path string, body any) ([]byte, error) {
+	out, _, err := fetchRaw(method, path, body)
+	return out, err
+}
+
+// fetchRaw also hands back the status, for the one caller that has something to
+// say about a particular refusal rather than just passing it on.
+func fetchRaw(method, path string, body any) ([]byte, int, error) {
 	var rdr io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		rdr = bytes.NewReader(buf)
 	}
 	req, err := http.NewRequest(method, "http://"+apiAddr()+path, rdr)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -474,29 +493,44 @@ func fetch(method, path string, body any) ([]byte, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("cannot reach xwrtd on %s: %w "+
+		return nil, 0, fmt.Errorf("cannot reach xwrtd on %s: %w "+
 			"(is the service running? /etc/init.d/xwrt start)", apiAddr(), err)
 	}
 	defer resp.Body.Close()
 	out, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, resp.StatusCode, err
 	}
 	if resp.StatusCode >= 400 {
 		var e struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(out, &e) == nil && e.Error != "" {
-			return nil, fmt.Errorf("%s", e.Error)
+			return out, resp.StatusCode, fmt.Errorf("%s", e.Error)
 		}
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(out)))
+		return out, resp.StatusCode, fmt.Errorf("HTTP %d: %s",
+			resp.StatusCode, strings.TrimSpace(string(out)))
 	}
-	return out, nil
+	return out, resp.StatusCode, nil
 }
 
-// apiAddr reads the port straight from UCI so the CLI keeps working when the
+// hasFlag reports whether the argument list carries a bare flag.
+func hasFlag(args []string, name string) bool {
+	for _, a := range args {
+		if a == name || a == strings.TrimPrefix(name, "-") {
+			return true
+		}
+	}
+	return false
+}
+
+// apiAddr is where the daemon is. A variable so a test can point the CLI at a
+// stub server; nothing else replaces it.
+var apiAddr = daemonAddr
+
+// daemonAddr reads the port straight from UCI so the CLI keeps working when the
 // operator moves the API off its default port.
-func apiAddr() string {
+func daemonAddr() string {
 	port := 8787
 	if v := ucicfg.New().GetOption("xwrt", "main", "api_port"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -539,8 +573,11 @@ func usage() {
 
   xwrt import <link>             add profiles from a share link ('-' reads stdin)
   xwrt delete <profile-id>       remove a profile
-  xwrt fetch-cert <profile-id>   pin the server's certificate (replaces
-                                 allowInsecure, which new cores removed)
+  xwrt fetch-cert <id> [-replace]
+                                 pin the server's certificate (replaces
+                                 allowInsecure, which new cores removed).
+                                 -replace is needed to overwrite a pin that
+                                 is already there and no longer matches
   xwrt ping <profile-id>         TCP reachability check of the server
 
   xwrt group-add <name> <strategy> <profile-id>...
@@ -558,6 +595,106 @@ func usage() {
   xwrt sub-refresh <sub-id>      refetch a subscription
   xwrt sub-del <sub-id>          remove a subscription and its profiles
 
+  xwrt backup [file]             write the whole configuration to a file, or
+                                 to standard output when no file is named
+  xwrt restore <file>            put a backup back, replacing everything
+
   xwrt set key=value ...         change settings, e.g. mode=tun proxy_udp=true
 `)
+}
+
+// Backing the device up, and putting it back.
+//
+// The file is the configuration document, unchanged — the same thing
+// `xwrt config` prints and the same thing the JSON page shows. No wrapper and
+// no format of its own, so a backup can be restored by any path that already
+// exists, and a backup taken a year ago is still just a document.
+//
+// What it holds is everything this app stores: servers, groups, rules,
+// subscriptions and settings. What it does not hold is anything that is not
+// this app's — the firewall, dnsmasq, the rest of the router. Those belong to
+// OpenWrt's own backup, and pretending otherwise would be the worse failure:
+// somebody restores this file onto a fresh router and believes they are done.
+
+func runBackup(args []string) error {
+	body, err := fetch(http.MethodGet, "/api/config", nil)
+	if err != nil {
+		return err
+	}
+	// Reformatted rather than passed through: a backup is something people
+	// read and diff, and one long line is neither.
+	var doc any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return err
+	}
+	pretty, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	pretty = append(pretty, '\n')
+
+	if len(args) == 0 || args[0] == "-" {
+		_, err = os.Stdout.Write(pretty)
+		return err
+	}
+	// 0600, and said out loud below: this file carries every server's
+	// credentials in full.
+	if err := os.WriteFile(args[0], pretty, 0o600); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", args[0], len(pretty))
+	fmt.Fprintln(os.Stderr, "It contains your server credentials in full. "+
+		"Treat it the way you would treat the share links themselves.")
+	return nil
+}
+
+func runRestore(path string) error {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	// Checked before anything is written, because the answer to "would this be
+	// accepted" is worth having *before* the device has been replaced by it.
+	// The daemon runs exactly the validation the save would.
+	checked, err := fetchCheck(body)
+	if err != nil {
+		return err
+	}
+	if len(checked) > 0 {
+		return fmt.Errorf("this file would not be accepted, and nothing was "+
+			"changed:\n  %s", strings.Join(checked, "\n  "))
+	}
+
+	if err := putRaw("/api/config", body); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "restored. The running tunnel is still on the "+
+		"configuration it was built from; run `xwrt connect` to rebuild it.")
+	return nil
+}
+
+// fetchCheck asks the daemon whether a document would be accepted, and returns
+// the problems rather than an error: a document with three mistakes in it
+// should produce three lines, not the first one.
+func fetchCheck(body []byte) ([]string, error) {
+	raw, status, err := fetchRaw(http.MethodPut, "/api/config?check=1", json.RawMessage(body))
+	var res struct {
+		Problems []string `json:"problems"`
+		Error    string   `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &res)
+	if len(res.Problems) > 0 {
+		return res.Problems, nil
+	}
+	if err != nil {
+		if res.Error != "" {
+			return []string{res.Error}, nil
+		}
+		if status >= 400 {
+			return []string{err.Error()}, nil
+		}
+		return nil, err
+	}
+	return nil, nil
 }

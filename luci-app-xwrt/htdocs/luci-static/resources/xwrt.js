@@ -107,7 +107,7 @@ var callPing = rpc.declare({
 	object: 'xwrt', method: 'ping', params: [ 'id' ]
 });
 var callFetchCert = rpc.declare({
-	object: 'xwrt', method: 'fetch_cert', params: [ 'id' ]
+	object: 'xwrt', method: 'fetch_cert', params: [ 'id', 'replace' ]
 });
 
 var callSubAdd = rpc.declare({
@@ -306,6 +306,35 @@ return baseclass.extend({
 	subAdd: callSubAdd,
 	subRefresh: callSubRefresh,
 	subDel: callSubDel,
+
+	// verifiableName is the name a profile's certificate would be checked
+	// against, or empty when there is none.
+	//
+	// The same rule the daemon applies, and it has to stay the same rule: a
+	// switch this page offers and the daemon then refuses is worse than no
+	// switch. The SNI comes first because that is what the core sends and
+	// therefore what the far end answers for.
+	verifiableName: function(p) {
+		var name = (p && p.sni) || (p && p.address) || '';
+		if (!name || this.isIP(name))
+			return '';
+		return name;
+	},
+
+	// isIP is deliberately loose at the edges and exact in the middle: the
+	// question is "is this a literal address rather than a name", and anything
+	// with a letter other than a hex digit in a v6 address is a name.
+	isIP: function(s) {
+		if (/^\d{1,3}(\.\d{1,3}){3}$/.test(s))
+			return true;
+		return s.indexOf(':') >= 0 && /^[0-9a-fA-F:.\[\]]+$/.test(s);
+	},
+
+	// canAutoPin reports whether accepting a changed certificate unseen is even
+	// an option to offer for this profile.
+	canAutoPin: function(p) {
+		return !!p && p.security === 'tls' && this.verifiableName(p) === '';
+	},
 
 	// style returns the stylesheet xwrt's own tables need. Every view puts it
 	// in its output; a duplicate <style> is harmless and beats tracking whether

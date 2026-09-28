@@ -29,9 +29,16 @@ import (
 // CertInfo describes one certificate in the chain, so an operator can see what
 // they are about to trust.
 type CertInfo struct {
-	Subject  string `json:"subject"`
-	Issuer   string `json:"issuer"`
-	NotAfter string `json:"not_after"`
+	Subject string `json:"subject"`
+	Issuer  string `json:"issuer"`
+	// NotBefore is here, next to NotAfter, because the pair is what explains a
+	// pin that stopped matching. The expiry alone says nothing: a certificate
+	// issued last night with ninety days on it is a routine renewal, and one
+	// issued last night that expires this afternoon is a server handing out a
+	// fresh certificate every few hours — the same symptom, two completely
+	// different things to do about it.
+	NotBefore string `json:"not_before"`
+	NotAfter  string `json:"not_after"`
 	// SHA256 is the hex digest of this certificate on its own, which is what
 	// `xray tls ping` and `xray tls hash` print, so the two can be compared.
 	SHA256 string `json:"sha256"`
@@ -103,11 +110,12 @@ func Fetch(host string, port int, sni string, timeout time.Duration) (*Result, e
 		raw = append(raw, c.Raw)
 		sum := sha256.Sum256(c.Raw)
 		chain = append(chain, CertInfo{
-			Subject:  c.Subject.String(),
-			Issuer:   c.Issuer.String(),
-			NotAfter: c.NotAfter.UTC().Format(time.RFC3339),
-			SHA256:   hex.EncodeToString(sum[:]),
-			IsCA:     c.IsCA,
+			Subject:   c.Subject.String(),
+			Issuer:    c.Issuer.String(),
+			NotBefore: c.NotBefore.UTC().Format(time.RFC3339),
+			NotAfter:  c.NotAfter.UTC().Format(time.RFC3339),
+			SHA256:    hex.EncodeToString(sum[:]),
+			IsCA:      c.IsCA,
 		})
 	}
 
@@ -153,4 +161,74 @@ func verifies(certs []*x509.Certificate, name string) bool {
 		Intermediates: pool,
 	})
 	return err == nil
+}
+
+// --- what changed, and what it means ----------------------------------------
+//
+// A pin that stops matching is the same message whatever caused it, and the
+// causes want opposite responses: a server that reissues its certificate every
+// twelve hours needs a different arrangement entirely, a routine renewal needs
+// one click, and somebody else's certificate on the path needs neither. The
+// certificate that came back carries enough to tell them apart, so the daemon
+// reads it rather than leaving an operator to compare timestamps by eye at
+// nine in the morning.
+//
+// What it cannot say is what the *previous* certificate was: a pin is a hash,
+// and a hash of a certificate tells you nothing about the certificate. So this
+// describes what is there now and how it got there, and stops short of claiming
+// what changed.
+
+// Nature is what the certificate on the wire looks like.
+type Nature struct {
+	// SelfSigned is true when the leaf issued itself and no authority stands
+	// behind it.
+	SelfSigned bool `json:"self_signed"`
+	// LifetimeHours is how long the leaf is valid for in total. A certificate
+	// measured in hours is one that will keep being replaced.
+	LifetimeHours int `json:"lifetime_hours"`
+	// AgeHours is how long ago it was issued.
+	AgeHours int `json:"age_hours"`
+	// Note is a sentence for a person, naming the likeliest reading and what
+	// follows from it.
+	Note string `json:"note,omitempty"`
+}
+
+// Describe reads the fetched chain.
+func (r *Result) Describe(now time.Time) Nature {
+	var n Nature
+	if len(r.Chain) == 0 {
+		return n
+	}
+	leaf := r.Chain[0]
+	n.SelfSigned = leaf.Subject == leaf.Issuer
+	from, errFrom := time.Parse(time.RFC3339, leaf.NotBefore)
+	to, errTo := time.Parse(time.RFC3339, leaf.NotAfter)
+	if errFrom == nil && errTo == nil {
+		n.LifetimeHours = int(to.Sub(from).Hours())
+		n.AgeHours = int(now.Sub(from).Hours())
+	}
+
+	switch {
+	case n.LifetimeHours > 0 && n.LifetimeHours <= 48:
+		n.Note = "this certificate is only valid for about " +
+			strconv.Itoa(n.LifetimeHours) + " hours, so the server replaces it " +
+			"several times a day and any pin taken from it will stop matching " +
+			"just as often. Pinning is the wrong arrangement here: give the " +
+			"server a name and a certificate issued for it"
+	case r.Trusted && n.AgeHours >= 0 && n.AgeHours < 48:
+		n.Note = "a public authority vouches for this certificate and it was " +
+			"issued within the last two days, which is what a routine renewal " +
+			"looks like. A certificate that verifies on its own does not need " +
+			"pinning at all — point the profile at the name it was issued for " +
+			"and the next renewal will pass unnoticed"
+	case n.SelfSigned && n.AgeHours >= 0 && n.AgeHours < 48:
+		n.Note = "this certificate signs itself and was made within the last " +
+			"two days, which is what a server does when its panel or proxy was " +
+			"restarted. It will happen again on the next restart"
+	case !r.Trusted && !n.SelfSigned:
+		n.Note = "no public authority vouches for this certificate and it was " +
+			"not issued by the server itself, so look at the issuer above " +
+			"before trusting it: this is the case a pin exists to catch"
+	}
+	return n
 }

@@ -251,6 +251,11 @@ return view.extend({
 		o.datatype = 'port';
 		o.default = '8787';
 
+		o = s.taboption('advanced', form.Value, 'conn_idle', _('Idle connection timeout'),
+			_('Seconds a connection may carry nothing before the core closes it. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. Lower it only if you know why.'));
+		o.datatype = 'uinteger';
+		o.default = '14400';
+
 		o = s.taboption('advanced', form.Value, 'tun_name', _('TUN device name'),
 			_('If you change this, update the xwrt firewall zone to match, or forwarded traffic is dropped.'));
 		o.default = 'xwrt0';

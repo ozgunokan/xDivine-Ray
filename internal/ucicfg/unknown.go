@@ -19,7 +19,7 @@ import (
 var knownOptions = map[string]map[string]bool{
 	typeMain: set(
 		"enabled", "active", "active_kind", "mode",
-		"socks_port", "http_port", "tproxy_port", "dns_port", "stats_port", "api_port",
+		"socks_port", "http_port", "tproxy_port", "dns_port", "stats_port", "api_port", "conn_idle",
 		"dns", "dns_mode", "log_level", "allow_lan", "auto_connect", "ipv6",
 		"proxy_router", "xray_bin", "hev_bin", "run_dir",
 		"tun_name", "tun_addr", "tun_mask", "tun_mtu",
@@ -29,7 +29,7 @@ var knownOptions = map[string]map[string]bool{
 	typeProfile: set(
 		"name", "proto", "address", "port", "uuid", "password", "method", "alter_id",
 		"encryption", "flow", "net", "security", "sni", "alpn", "fp",
-		"pbk", "sid", "spx", "allow_insecure", "pinned_cert",
+		"pbk", "sid", "spx", "allow_insecure", "pinned_cert", "pin_auto",
 		"path", "host", "service_name", "header_type", "seed",
 		"quic_security", "quic_key", "mux", "sub", "remark",
 	),

@@ -111,11 +111,15 @@ var hints = map[string]string{
 
 	// The pinned-certificate hint is the one that costs an evening when it is
 	// missing: nothing else about this failure looks different from any other.
-	"hint.pinned_cert":       "this profile pins the server's certificate; if the server has renewed it, the pin no longer matches and every connection is refused. Run `xwrt fetch-cert %s` to read the current certificate, then connect again. Otherwise check that the account is still valid and that the server is up",
+	"hint.pinned_cert":       "this profile pins the server's certificate and the server is presenting a different one, so every connection is refused. Run `xwrt fetch-cert %s` to see what it is presenting now: it will show the issuer and the validity dates and change nothing. If the certificate is only valid for hours, the server reissues it constantly and pinning is the wrong arrangement — give the server a name and a certificate issued for it. If it is a renewal you recognise, repeat with -replace",
 	"hint.group_no_data":     "no member of this group could carry data; check that the accounts are still valid and the servers are up",
 	"hint.check_credentials": "check that the credentials are still valid and the server is up; the core's own last lines above usually name the reason",
 
-	"hint.tun_kmod":         "install kmod-tun",
+	// Deliberately not just "install kmod-tun". That sentence is actionable on
+	// OpenWrt and nowhere else, and the failure itself now says which of the
+	// three things went wrong; this only has to say what to do next. The one
+	// thing that always works is the mode that needs no tunnel at all.
+	"hint.tun_kmod":         "on OpenWrt install kmod-tun; on a firmware with no package manager the kernel has to have the driver already. Redirect mode captures TCP without a tunnel",
 	"hint.tun_hev":          "install hev-socks5-tunnel, or use redirect mode, which needs no tunnel",
 	"hint.tun_no_device":    "hev-socks5-tunnel started but never created the device; check the lines above and that /dev/net/tun is usable",
 	"hint.tun_ip_full":      "install the ip-full package",

@@ -214,6 +214,49 @@ return view.extend({
 					parts.push(row(f));
 			});
 
+			// Accepting a changed certificate unseen.
+			//
+			// Offered only where nothing could be verified anyway: a bare
+			// address with no name behind it, over TLS. On a profile that sends
+			// a real name the certificate can be checked properly, so the
+			// switch is not shown there — it would be turning off a check that
+			// works, and the daemon refuses it in any case.
+			//
+			// The label says what it does rather than what it is for. "Accept
+			// certificate changes automatically" sounds like convenience;
+			// "do not authenticate this server" is the same setting described
+			// honestly, and somebody reading it can decide.
+			if (xwrt.canAutoPin(draft))
+				parts.push(E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Certificate changes')),
+					E('div', { 'class': 'cbi-value-field' }, [
+						E('label', { 'style': 'display:flex;align-items:flex-start;gap:.4em' }, [
+							(function() {
+								var cb = E('input', { 'type': 'checkbox' });
+								cb.checked = !!draft.pin_auto;
+								cb.addEventListener('change', function() {
+									draft.pin_auto = !!cb.checked;
+								});
+								return cb;
+							})(),
+							E('span', { 'style': 'opacity:.75;font-size:92%' },
+								_('Accept a new certificate without asking, and keep the tunnel up.'))
+						]),
+						E('div', {
+							'class': 'alert-message warning',
+							'style': 'margin-top:.6em;font-size:92%'
+						}, _('This server is reached by address alone, so no certificate can be verified for it and the pin is the only thing standing anywhere. With this on, the pin follows whatever answers: the profile stops authenticating its server, and anything able to answer on this address and port is accepted. Every change is still written to the log.'))
+					])
+				]));
+			else if (draft.security === 'tls' && draft.pinned_cert)
+				parts.push(E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Certificate changes')),
+					E('div', { 'class': 'cbi-value-field' },
+						E('div', { 'style': 'opacity:.75;font-size:92%' },
+							_('This profile verifies %s, so a certificate that changes can be checked properly. Clearing the pin is the better answer here than accepting changes unseen.')
+								.format(xwrt.verifiableName(draft))))
+				]));
+
 			parts.push(E('div', { 'class': 'cbi-value' }, [
 				E('label', { 'class': 'cbi-value-title' }, _('Multiplexing (mux)')),
 				E('div', { 'class': 'cbi-value-field' },
@@ -627,13 +670,27 @@ return view.extend({
 	// whatever answered: on a network that is already intercepting the
 	// connection, this would pin the interceptor. Seeing the issuer is how
 	// someone notices that.
-	handlePinCert: function(id, label) {
+	handlePinCert: function(id, label, replace) {
 		var self = this;
 		ui.showModal(_('Reading the certificate…'), [
 			E('p', { 'class': 'spinning' }, _('Connecting to %s').format(label))
 		]);
-		return xwrt.fetchCert(id).then(function(res) {
+		return xwrt.fetchCert(id, replace ? true : false).then(function(res) {
 			ui.hideModal();
+
+			// A pin that is already there and no longer matches is a second
+			// question, and the daemon declines to answer it on its own.
+			//
+			// The reason is the situation it arises in. Every connection is
+			// being refused, the obvious move is to read the certificate
+			// again, and if what changed is something sitting on the path then
+			// that is what gets pinned — after which the tunnel comes back up
+			// through it looking perfectly healthy. So the certificate is put
+			// in front of the operator first, with the two facts that decide
+			// the answer: who issued it, and how long it lives.
+			if (res && res.needs_replace)
+				return self.confirmNewCert(id, label, res);
+
 			xwrt.checked(res);
 
 			var leaf = (res.chain || [])[0] || {};
@@ -698,6 +755,58 @@ return view.extend({
 			ui.addNotification(null, E('p',
 				_('Could not read the certificate: %s').format(err.message)), 'error');
 		});
+	},
+
+	// confirmNewCert shows the certificate the server is presenting now and
+	// asks whether to trust it in place of the pinned one. Nothing has been
+	// saved at this point and nothing is saved unless this is answered.
+	confirmNewCert: function(id, label, res) {
+		var self = this;
+		var found = res.found || {};
+		var nature = res.nature || {};
+		var chain = found.chain || [];
+
+		var body = [
+			E('p', {}, _('%s is presenting a certificate other than the one pinned for it. Nothing has been changed.').format(label)),
+			E('div', { 'style': 'margin:.9em 0 .3em;opacity:.75' }, _('Pinned until now')),
+			E('div', { 'style': PIN_BOX }, res.current_pin || ''),
+			E('div', { 'style': 'margin:.9em 0 .3em;opacity:.75' }, _('Presented now')),
+			E('div', { 'style': PIN_BOX }, found.pin || '')
+		];
+
+		chain.forEach(function(c, i) {
+			body.push(E('div', { 'style': 'margin-top:1em' }, [
+				E('strong', {}, (i === 0 ? _('Certificate') : _('Issuer')) + ': ' + (c.subject || '')),
+				E('div', { 'style': 'opacity:.75;font-size:92%;margin-top:.2em' },
+					_('Issued by %s').format(c.issuer || '')),
+				E('div', { 'style': 'opacity:.75;font-size:92%' },
+					_('Valid %s → %s').format(xwrt.localDateTime(c.not_before),
+						xwrt.localDateTime(c.not_after)))
+			]));
+		});
+
+		if (nature.note)
+			body.push(E('div', {
+				'class': 'alert-message ' + (found.trusted ? 'info' : 'warning'),
+				'style': 'margin-top:1em'
+			}, nature.note));
+
+		body.push(E('div', { 'class': 'right', 'style': 'margin-top:1.2em' }, [
+			E('button', {
+				'class': 'cbi-button',
+				'click': ui.createHandlerFn(self, function() { ui.hideModal(); })
+			}, _('Cancel')),
+			' ',
+			E('button', {
+				'class': 'cbi-button cbi-button-negative',
+				'click': ui.createHandlerFn(self, function() {
+					ui.hideModal();
+					return self.handlePinCert(id, label, true);
+				})
+			}, _('Pin this certificate instead'))
+		]));
+
+		ui.showModal(_('The certificate has changed'), body);
 	},
 
 	handleDelete: function(id, label) {

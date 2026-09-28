@@ -58,6 +58,14 @@ type Engine struct {
 	// holds the engine lock.
 	coreStarting atomic.Bool
 
+	// pinAccepted is set when a failed connect turned out to be a certificate
+	// that had changed on a profile set to accept changes, and the new one was
+	// stored. It is read once by the connect path, which then builds again from
+	// the new pin — the core has the old one compiled into its configuration,
+	// so nothing short of rebuilding can use the new one. Guarded by mu like
+	// the rest of this, and cleared by whoever reads it.
+	pinAccepted bool
+
 	// liveFP fingerprints the material the running core was built from, so an
 	// edit made while connected can be told from one that only looks like a
 	// change. Empty when nothing is connected.
@@ -310,6 +318,12 @@ func shouldFallBack(was, attempted string) bool {
 }
 
 func (e *Engine) connectLocked(targetID string) error {
+	return e.connectLockedOnce(targetID, true)
+}
+
+// connectLockedOnce builds the connection. retry allows exactly one rebuild,
+// for the case where the attempt itself produced the thing that was missing.
+func (e *Engine) connectLockedOnce(targetID string, retry bool) error {
 	data, err := e.store.Load()
 	if err != nil {
 		return fail(model.StepConfig, "config.read", err).
@@ -360,6 +374,21 @@ func (e *Engine) connectLocked(targetID string) error {
 	e.refreshEnvLocked()
 
 	if err := e.startLocked(profile, group, members, data.Rules, &data.Settings); err != nil {
+		// A certificate that changed on a profile set to accept changes has
+		// already been accepted and stored; what failed was a core built from
+		// the old one. Building again is the whole point of having accepted it.
+		//
+		// Once, and only once. The second attempt runs with retry off, so a
+		// server whose certificate changes between every handshake produces one
+		// extra attempt rather than a loop that never returns.
+		if e.pinAccepted {
+			e.pinAccepted = false
+			if retry {
+				e.Log.Step(model.StepCore).Infof(
+					"reconnecting %s with the certificate it is presenting now", label)
+				return e.connectLockedOnce(targetID, false)
+			}
+		}
 		return err
 	}
 
@@ -618,6 +647,24 @@ func (e *Engine) startLocked(p *model.Profile, g *model.Group, members []model.P
 		f := fail(model.StepCore, "core.no_data", err).
 			from(model.SourceCore).
 			withLines(e.core.RecentOutput(15))
+
+		// Before guessing, look. One handshake settles whether the pin is the
+		// problem, and if it is, everything worth knowing about the new
+		// certificate goes into the record instead of into an instruction to
+		// go and find it.
+		if look := inspectPin(p, 8*time.Second); look != nil {
+			out := pinOutcomeFor(p, look)
+			f = f.withDetail(out.Detail)
+			if out.Accept {
+				// The operator asked for this and the profile is one where no
+				// certificate could have been verified anyway. Take it, say so,
+				// and hand the caller a signal to build again from the new pin.
+				if err := e.acceptNewPin(p, look); err == nil {
+					e.pinAccepted = true
+					return f
+				}
+			}
+		}
 		return noDataHint(f, p, g)
 	}
 	e.Log.Step(model.StepCore).Infof("tunnel carries data")
