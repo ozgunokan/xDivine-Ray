@@ -362,6 +362,31 @@ CLI and the LuCI page say so rather than showing a silently empty column.
 Nothing is written to flash: the history is a ring in memory, which is the
 right trade for a question about the present.
 
+### Connections that are meant to sit still
+
+A phone holds one connection to its push service open for as long as it is
+switched on, sends nothing down it between messages, and heartbeats every
+fifteen to thirty minutes. Close that connection and the phone does not find
+out until its next heartbeat; everything sent in between arrives in a batch
+when it reconnects. What the owner sees is a message sent at 22:37 arriving at
+22:47.
+
+Two things in this stack close idle connections, and both had to be told not
+to. The core's own `connIdle` defaults to five minutes, which the settings
+raise to four hours. `hev-socks5-tunnel` has timeouts of its own — five minutes
+for TCP, one for UDP — which nothing here used to set, so in TUN mode, where
+every connection on the network passes through it, it closed them first and the
+core's four hours never got the chance to apply. Mixed mode did not show it,
+because TCP goes through the firewall there and never meets that timeout.
+
+The idle setting now reaches both. TCP follows it exactly; UDP is capped at ten
+minutes, because a UDP session is a mapping held open with nothing to close it
+and a household's worth held for four hours is memory this class of device does
+not have. The key names are read out of the installed tunnel binary rather than
+assumed, since the older builds spell it `read-write-timeout` and the current
+ones split it in two — and writing a name the binary does not know is a gamble
+whose stake is a tunnel that will not start.
+
 ### Errors that keep happening
 
 A lossy upstream makes the core fail the same way over and over. On a night's

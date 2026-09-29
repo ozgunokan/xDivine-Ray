@@ -255,7 +255,7 @@ return view.extend({
 		// field whose unit has to be read a paragraph down is a field somebody
 		// gets wrong by a factor of a thousand.
 		o = s.taboption('advanced', form.Value, 'conn_idle', _('Idle connection timeout (seconds)'),
-			_('How long a connection may carry nothing before the core closes it. The default, 14400, is four hours. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. Lower it only if you know why.'));
+			_('How long a connection may carry nothing before it is closed. The default, 14400, is four hours. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. It applies to the tunnel process as well as the core, whose own defaults are five minutes and would otherwise close such a connection first. UDP sessions are capped at ten minutes regardless, since nothing closes those and holding them costs memory. Lower it only if you know why.'));
 		o.datatype = 'uinteger';
 		o.default = '14400';
 

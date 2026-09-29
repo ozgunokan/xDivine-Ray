@@ -165,6 +165,11 @@ func (t *Tun) renderConfig() string {
 	// affordable, and a stack that is too small shows up as corruption under
 	// load rather than as a clean error.
 	b.WriteString("  task-stack-size: 86016\n")
+	// The idle timeouts. These went unset for a long time, which meant hev's
+	// own applied — five minutes for TCP — and closed the connection a phone's
+	// push service keeps open between messages. See hevidle.go.
+	tcpMS, udpMS := hevIdleMillis(s.ConnIdle)
+	b.WriteString(hevIdleLines(hevKeys(s.HevBin), tcpMS, udpMS))
 	b.WriteString("  log-file: stderr\n")
 	b.WriteString("  log-level: " + hevLogLevel(s.LogLevel) + "\n")
 	b.WriteString("  limit-nofile: 65535\n")
