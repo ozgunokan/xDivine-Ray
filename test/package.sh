@@ -154,6 +154,16 @@ for f in $(cd package/xwrt/files && find . -type f | sed 's|^\./||'); do
 done
 [ "$fail" = 0 ] && ok "every shipped script parses"
 
+# --- and so do the ones in the repository root ---------------------------
+#
+# get.sh in particular: it is the URL strangers paste into a router, so a
+# syntax error in it is a syntax error in the front door.
+for f in get.sh build.sh release.sh test/*.sh; do
+	[ -f "$f" ] || continue
+	sh -n "$f" 2>/dev/null || bad "$f has a syntax error"
+done
+[ "$fail" = 0 ] && ok "the build, release and install scripts parse"
+
 echo
 [ "$fail" = 0 ] && echo "the package and the bundle install the same xwrt"
 exit "$fail"

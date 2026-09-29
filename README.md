@@ -72,7 +72,45 @@ not on its CPU:
 
 ## Installing
 
-### Quick path, no SDK
+### One line, on the router
+
+```sh
+wget -qO- https://raw.githubusercontent.com/ozgunokan/xDivine-Ray/main/get.sh | sh
+```
+
+It works out which architecture this device is, fetches that bundle from the
+latest release, checks it against the release's `sha256sums`, and only then
+installs it. An existing `/etc/config/xwrt` is kept, so the same line upgrades.
+
+To read it before running it — which is the right instinct for anything piped
+into a shell:
+
+```sh
+wget -O get.sh https://raw.githubusercontent.com/ozgunokan/xDivine-Ray/main/get.sh
+less get.sh
+sh get.sh
+```
+
+Three things it will not do. It will not install a bundle whose checksum does
+not match the one the release publishes. It will not guess at an architecture
+it has no bundle for — big-endian MIPS is named and refused rather than sent
+something that cannot run. And before copying a single file it runs the
+downloaded binary once, from the scratch directory, so a wrong bundle fails
+there with nothing on this device touched.
+
+It needs `https` to work on the router, which means a certificate store. If the
+fetch fails, that is usually why, and the script says so with the command that
+fixes it.
+
+```sh
+VERSION=1.0.22 sh get.sh     # a particular release rather than the latest
+ARCH=mipsel    sh get.sh     # override the detection
+```
+
+Afterwards, the web interface is under **VPN → xDivine-Ray** in LuCI, and
+`xwrt update install` does later upgrades from the same release page.
+
+### Building it yourself, no SDK
 
 ```sh
 ./build.sh                 # every architecture into ./dist
@@ -616,6 +654,18 @@ after the other one was fixed. `sh test/teardown.sh` checks the half of it that
 kills things: that it ends the daemon and the core this daemon started, and
 leaves alone an unrelated `xray` and anything that merely mentions our paths.
 It used to use `pkill -f`, which matched the shell running the test suite.
+
+**The one-line installer is tested without a router.** `sh test/getsh.sh`
+exercises the two things `get.sh` gets to decide. First the architecture table,
+as a function of what OpenWrt and `uname` say rather than of what is under the
+test: `uname -m` reports "mips" for both endiannesses, so the little-endian
+answer is read out of `DISTRIB_ARCH` where there is one and out of an ELF
+header where there is not, and big-endian MIPS — which has no bundle — is
+refused by name rather than sent something that cannot run. Then the sequence
+itself, against a stand-in bundle on disk: that a good one is fetched, checked,
+unpacked and handed over; that a tampered one is refused and not unpacked; and
+that a release with no bundle for this device is an error rather than a
+half-install.
 
 **Installing and uninstalling are done for real.** `sh test/install.sh` builds
 a bundle, installs it into `/usr/sbin`, `/etc` and `/www`, upgrades over
