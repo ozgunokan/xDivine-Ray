@@ -134,3 +134,84 @@ func TestItIsOffUnlessAskedFor(t *testing.T) {
 		t.Error("Validate turned it on")
 	}
 }
+
+// --- the borrowed name -------------------------------------------------------
+//
+// A great many of these servers are reached under a hostname that belongs to
+// somebody else. It looks exactly like a name that could be verified, right up
+// until the certificate arrives and is for the server's own name instead. The
+// rule above reads that as "verifiable, so no need for this option" — which was
+// wrong, and wrong on the arrangement that is most common.
+
+func TestABorrowedNameIsOfferedOnceWeHaveLooked(t *testing.T) {
+	p := tlsProfile("87.121.104.212", "cdn.whatsapp.net")
+	p.PinnedCert = "aaaa"
+
+	// Before the certificate has been looked at, nothing distinguishes this
+	// from a name that works. The careful answer is to withhold the option.
+	if p.CanAutoPin() {
+		t.Error("offered before anything showed the name does not match")
+	}
+
+	// The fetch showed the certificate is for something else.
+	p.PinUnverifiable = true
+	if !p.CanAutoPin() {
+		t.Error("still refused after the certificate was seen not to match " +
+			"the name, which is the case where a pin is the only thing there is")
+	}
+	if err := p.Validate(); err != nil {
+		t.Errorf("Validate refuses what CanAutoPin allows: %v", err)
+	}
+}
+
+// And a real name with a real certificate keeps the option withheld. This is
+// the case the rule exists for.
+func TestAVerifiedNameStaysWithheld(t *testing.T) {
+	p := tlsProfile("vpn.example.com", "")
+	p.PinnedCert = "aaaa"
+	p.PinUnverifiable = false
+
+	if p.CanAutoPin() {
+		t.Error("offered on a profile whose certificate matches the name it sends")
+	}
+	p.PinAuto = true
+	err := p.Validate()
+	if err == nil {
+		t.Fatal("accepted on a profile that can verify properly")
+	}
+	// The refusal has to mention the way out, because a borrowed name reaches
+	// this same message and its owner needs to know what to do.
+	if !strings.Contains(err.Error(), "borrowed") {
+		t.Errorf("the refusal does not tell somebody with a borrowed name how "+
+			"to proceed: %v", err)
+	}
+}
+
+// The mark means nothing without a pin: it is written by a fetch, and a profile
+// with no pin has had no fetch.
+func TestTheMarkAloneIsNotEnough(t *testing.T) {
+	p := tlsProfile("87.121.104.212", "cdn.whatsapp.net")
+	p.PinUnverifiable = true
+	if p.CanAutoPin() {
+		t.Error("offered on a profile that pins nothing")
+	}
+}
+
+// Zero value is the careful answer: a profile pinned by an older version, which
+// has no value for this field at all, reads as verifiable and is refused.
+func TestAProfileFromBeforeThisFieldIsRefused(t *testing.T) {
+	p := tlsProfile("87.121.104.212", "cdn.whatsapp.net")
+	p.PinnedCert = "aaaa"
+	if p.CanAutoPin() {
+		t.Error("an old profile with no recorded check was treated as unverifiable")
+	}
+}
+
+// None of this changes the plain case: a bare address has no name at all and
+// never needed a certificate to be fetched to know it.
+func TestABareAddressStillNeedsNoLook(t *testing.T) {
+	p := tlsProfile("87.121.104.212", "")
+	if !p.CanAutoPin() {
+		t.Error("a bare address stopped being offered the option")
+	}
+}

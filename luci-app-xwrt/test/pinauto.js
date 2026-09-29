@@ -66,6 +66,18 @@ var named = editor(base({ sni: 'vpn.example.com' }));
 check('a profile sending a real name is not offered it',
 	named.text.indexOf('sormadan kabul et') < 0);
 
+// A borrowed name is a real hostname belonging to somebody else, which is how
+// a great many of these servers are reached. It reads as verifiable until the
+// certificate has been looked at — so before the look it is withheld, and after
+// a look that found nothing vouching for it, it is offered.
+var borrowedUnseen = editor(base({ sni: 'cdn.whatsapp.net' }));
+check('a borrowed name is withheld until the certificate has been looked at',
+	borrowedUnseen.text.indexOf('sormadan kabul et') < 0);
+
+var borrowedSeen = editor(base({ sni: 'cdn.whatsapp.net', pin_unverifiable: true }));
+check('and offered once the certificate turned out not to verify for it',
+	borrowedSeen.text.indexOf('sormadan kabul et') >= 0);
+
 // And it says why, with the better answer, rather than silently omitting a
 // control the operator was looking for.
 check('and is told why, and what to do instead',

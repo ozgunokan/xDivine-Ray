@@ -144,9 +144,19 @@ func TestVLESSWebsocketTLSLinkFidelity(t *testing.T) {
 	eq(t, at(t, tls, "serverName"), "front.example.com", "tls serverName")
 	eq(t, at(t, tls, "fingerprint"), "firefox", "tls fingerprint")
 
+	// The link says `alpn=h2,http/1.1` and only http/1.1 survives, which is one
+	// of the two places this suite lets a value be dropped rather than carried.
+	//
+	// WebSocket works by upgrading an HTTP/1.1 request. Offer h2, have the
+	// server take it, and the connection is HTTP/2 as far as the server is
+	// concerned — the HTTP/1.1 request that then arrives is unreadable to it
+	// and it closes without answering. The dial fails with EOF and nothing
+	// else. Panels emit this ALPN on WebSocket profiles by default, so the
+	// link being faithful to it would mean being faithful to a mistake.
 	alpn, ok := at(t, tls, "alpn").([]any)
-	if !ok || len(alpn) != 2 || alpn[0] != "h2" || alpn[1] != "http/1.1" {
-		t.Errorf("alpn = %#v, want [h2 http/1.1]", at(t, tls, "alpn"))
+	if !ok || len(alpn) != 1 || alpn[0] != "http/1.1" {
+		t.Errorf("alpn = %#v, want [http/1.1]: h2 has no place on a transport "+
+			"that upgrades an HTTP/1.1 request", at(t, tls, "alpn"))
 	}
 }
 

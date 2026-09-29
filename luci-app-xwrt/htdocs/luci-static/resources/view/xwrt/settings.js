@@ -251,8 +251,11 @@ return view.extend({
 		o.datatype = 'port';
 		o.default = '8787';
 
-		o = s.taboption('advanced', form.Value, 'conn_idle', _('Idle connection timeout'),
-			_('Seconds a connection may carry nothing before the core closes it. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. Lower it only if you know why.'));
+		// The unit belongs in the label, not only in the description. A number
+		// field whose unit has to be read a paragraph down is a field somebody
+		// gets wrong by a factor of a thousand.
+		o = s.taboption('advanced', form.Value, 'conn_idle', _('Idle connection timeout (seconds)'),
+			_('How long a connection may carry nothing before the core closes it. The default, 14400, is four hours. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. Lower it only if you know why.'));
 		o.datatype = 'uinteger';
 		o.default = '14400';
 

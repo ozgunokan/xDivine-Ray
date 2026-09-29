@@ -140,6 +140,9 @@ define Package/xwrt/install
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/firewall
 	$(INSTALL_BIN) ./files/etc/hotplug.d/firewall/99-xwrt $(1)/etc/hotplug.d/firewall/99-xwrt
 
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/99-xwrt $(1)/etc/hotplug.d/iface/99-xwrt
+
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./files/usr/libexec/rpcd/xwrt $(1)/usr/libexec/rpcd/xwrt
 

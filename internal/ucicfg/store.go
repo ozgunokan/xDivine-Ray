@@ -169,38 +169,39 @@ func (s *Store) load() (*Data, error) {
 
 	for _, sec := range pkg.OfType(typeProfile) {
 		p := model.Profile{
-			ID:            sec.Name,
-			Name:          sec.Get("name"),
-			Proto:         model.Proto(orDefault(sec.Get("proto"), string(model.ProtoVLESS))),
-			Address:       sec.Get("address"),
-			Port:          toInt(sec.Get("port"), 0),
-			UUID:          sec.Get("uuid"),
-			Password:      sec.Get("password"),
-			Method:        sec.Get("method"),
-			AlterID:       toInt(sec.Get("alter_id"), 0),
-			Encryption:    sec.Get("encryption"),
-			Flow:          sec.Get("flow"),
-			Network:       orDefault(sec.Get("net"), "tcp"),
-			Security:      orDefault(sec.Get("security"), "none"),
-			SNI:           sec.Get("sni"),
-			ALPN:          sec.Get("alpn"),
-			Fingerprint:   sec.Get("fp"),
-			PublicKey:     sec.Get("pbk"),
-			ShortID:       sec.Get("sid"),
-			SpiderX:       sec.Get("spx"),
-			AllowInsecure: toBool(sec.Get("allow_insecure"), false),
-			PinnedCert:    sec.Get("pinned_cert"),
-			PinAuto:       toBool(sec.Get("pin_auto"), false),
-			Path:          sec.Get("path"),
-			Host:          sec.Get("host"),
-			ServiceName:   sec.Get("service_name"),
-			HeaderType:    sec.Get("header_type"),
-			Seed:          sec.Get("seed"),
-			QUICSec:       sec.Get("quic_security"),
-			QUICKey:       sec.Get("quic_key"),
-			Mux:           toBool(sec.Get("mux"), false),
-			Subscription:  sec.Get("sub"),
-			Remark:        sec.Get("remark"),
+			ID:              sec.Name,
+			Name:            sec.Get("name"),
+			Proto:           model.Proto(orDefault(sec.Get("proto"), string(model.ProtoVLESS))),
+			Address:         sec.Get("address"),
+			Port:            toInt(sec.Get("port"), 0),
+			UUID:            sec.Get("uuid"),
+			Password:        sec.Get("password"),
+			Method:          sec.Get("method"),
+			AlterID:         toInt(sec.Get("alter_id"), 0),
+			Encryption:      sec.Get("encryption"),
+			Flow:            sec.Get("flow"),
+			Network:         orDefault(sec.Get("net"), "tcp"),
+			Security:        orDefault(sec.Get("security"), "none"),
+			SNI:             sec.Get("sni"),
+			ALPN:            sec.Get("alpn"),
+			Fingerprint:     sec.Get("fp"),
+			PublicKey:       sec.Get("pbk"),
+			ShortID:         sec.Get("sid"),
+			SpiderX:         sec.Get("spx"),
+			AllowInsecure:   toBool(sec.Get("allow_insecure"), false),
+			PinnedCert:      sec.Get("pinned_cert"),
+			PinAuto:         toBool(sec.Get("pin_auto"), false),
+			PinUnverifiable: toBool(sec.Get("pin_unverifiable"), false),
+			Path:            sec.Get("path"),
+			Host:            sec.Get("host"),
+			ServiceName:     sec.Get("service_name"),
+			HeaderType:      sec.Get("header_type"),
+			Seed:            sec.Get("seed"),
+			QUICSec:         sec.Get("quic_security"),
+			QUICKey:         sec.Get("quic_key"),
+			Mux:             toBool(sec.Get("mux"), false),
+			Subscription:    sec.Get("sub"),
+			Remark:          sec.Get("remark"),
 		}
 		d.Profiles = append(d.Profiles, p)
 	}
@@ -342,6 +343,9 @@ func (s *Store) save(d *Data) error {
 		set("pinned_cert", p.PinnedCert)
 		if p.PinAuto {
 			set("pin_auto", "1")
+		}
+		if p.PinUnverifiable {
+			set("pin_unverifiable", "1")
 		}
 		set("path", p.Path)
 		set("host", p.Host)

@@ -99,6 +99,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/connect", s.connect)
 	mux.HandleFunc("POST /api/disconnect", s.disconnect)
 	mux.HandleFunc("POST /api/firewall/reapply", s.reapplyFirewall)
+	mux.HandleFunc("POST /api/wan/changed", s.wanChanged)
 
 	mux.HandleFunc("GET /api/update", s.getUpdate)
 	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
@@ -464,6 +465,14 @@ func (s *Server) fetchCert(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("profile %q disappeared", id)
 		}
 		target.PinnedCert = res.Pin
+		// What the handshake showed. NameMatch is true only when the chain
+		// validates against the system roots *and* was issued for the name
+		// being sent, so its opposite covers both ways ordinary verification
+		// can be impossible: a borrowed name, and a certificate nobody vouches
+		// for. This is the only moment either is visible. Recorded both ways,
+		// so re-pinning a server that has since been given a proper
+		// certificate takes the mark back off.
+		target.PinUnverifiable = !res.NameMatch
 		// The pin replaces allowInsecure rather than joining it: leaving both
 		// set would mean the profile still accepts any certificate on a core
 		// that still supports the flag.
@@ -966,6 +975,22 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.status())
+}
+
+// wanChanged is the hotplug hook's end of the line: an interface came up, and
+// the daemon decides for itself whether that matters. It answers immediately
+// either way, because a hotplug script that waits is a hotplug script that
+// holds up the rest of the device's own reconfiguration.
+func (s *Server) wanChanged(w http.ResponseWriter, r *http.Request) {
+	iface := r.URL.Query().Get("iface")
+	if iface == "" {
+		iface = "an interface"
+	}
+	if err := s.engine.UpstreamChanged(iface); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) reapplyFirewall(w http.ResponseWriter, r *http.Request) {

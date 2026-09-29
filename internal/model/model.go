@@ -213,6 +213,24 @@ type Profile struct {
 	// pin still changes, and it is still recorded, but anything that can answer
 	// on that address and port will be accepted.
 	PinAuto bool `json:"pin_auto,omitempty"`
+	// PinUnverifiable records that the certificate this profile pins did not
+	// validate for the name the connection sends — either nobody vouches for
+	// it, or it was issued for something else.
+	//
+	// It is written when a certificate is fetched and never guessed, because it
+	// cannot be worked out from the profile alone. A borrowed SNI — a real
+	// hostname belonging to somebody else entirely, which is how a great many
+	// of these servers are reached — looks exactly like a name that could be
+	// verified, right up until the certificate arrives and is for something
+	// else. A self-signed server looks the same from here for a different
+	// reason. Both mean the same thing in the end: ordinary verification cannot
+	// succeed, and the pin is the only thing standing.
+	//
+	// Stored as the negative so that its zero value is the careful answer: a
+	// profile pinned by an older version, or never fetched at all, reads as
+	// false and is treated as verifiable. That denies an option; the other way
+	// round would offer one.
+	PinUnverifiable bool `json:"pin_unverifiable,omitempty"`
 	// PinnedCert is the SHA-256 of the server's leaf certificate, as hex —
 	// optionally in the colon-separated form openssl prints. It authenticates
 	// that one certificate instead of trusting a CA, which is what makes a
@@ -300,11 +318,14 @@ func (p *Profile) Validate() error {
 			return errors.New("accepting a changed certificate automatically " +
 				"only applies to tls")
 		}
-		if name := p.VerifiableName(); name != "" {
-			return fmt.Errorf("this profile verifies %s, so a changed "+
-				"certificate can be checked properly and does not need to be "+
-				"accepted blindly. Clear the pin instead and let the "+
-				"certificate be verified the ordinary way", name)
+		if !p.CanAutoPin() {
+			return fmt.Errorf("this profile sends the name %s and nothing has "+
+				"shown that the server's certificate fails to match it, so a "+
+				"changed certificate can be checked properly rather than "+
+				"accepted blindly. Clear the pin and let it be verified the "+
+				"ordinary way — or, if that name is borrowed, pin the "+
+				"certificate first and this becomes available",
+				p.VerifiableName())
 		}
 	}
 	return nil
@@ -335,27 +356,64 @@ func (p *Profile) VerifiableName() string {
 
 // CanAutoPin reports whether this profile is one where accepting a changed
 // certificate unseen is even an option to offer.
+//
+// Two ways to have nothing to verify against. The plain one is no name at all:
+// a bare address, where no authority could have issued a certificate in the
+// first place. The other took a working profile to notice — a borrowed SNI is
+// a real hostname, so it reads as verifiable, but the certificate that comes
+// back is for the server's own name and validation can never succeed. From the
+// outside the two are the same situation, and the only way to tell them apart
+// is to have looked at the certificate: PinUnverifiable is that look.
 func (p *Profile) CanAutoPin() bool {
-	return p.Security == "tls" && p.VerifiableName() == ""
+	if p.Security != "tls" {
+		return false
+	}
+	if p.VerifiableName() == "" {
+		return true
+	}
+	return p.PinnedCert != "" && p.PinUnverifiable
 }
 
 // ALPNList splits the comma separated ALPN field.
 func (p *Profile) ALPNList() []string {
 	list := splitList(p.ALPN)
+	drop := map[string]bool{}
+
 	// h3 only exists over QUIC. Share links routinely carry it alongside h2 on
 	// a plain TCP profile — offering it there advertises a protocol this
 	// connection cannot speak, and a server that picks it leaves both ends
 	// waiting for the other to start.
 	if p.Network != "" && p.Network != "quic" {
-		out := list[:0]
-		for _, a := range list {
-			if a != "h3" {
-				out = append(out, a)
-			}
-		}
-		list = out
+		drop["h3"] = true
 	}
-	return list
+
+	// And h2 has no place on a transport that works by upgrading an HTTP/1.1
+	// request. WebSocket and httpupgrade both do exactly that: they send
+	// `Upgrade:` over HTTP/1.1 and expect a 101 back. If ALPN offers h2 and the
+	// server takes it, the connection is an HTTP/2 one as far as the server is
+	// concerned, the HTTP/1.1 request that arrives on it is not something it
+	// can read, and it closes without answering.
+	//
+	// What that looks like from here is a dial that fails with EOF and nothing
+	// else — no refusal, no error, no clue. It is intermittent too, because
+	// which protocol gets picked depends on the server's configuration and
+	// sometimes on which server answered. Share links from the common panels
+	// carry `alpn=h2,http/1.1` on WebSocket profiles as a matter of course, so
+	// this is not a rare mistake; it is the default one.
+	if p.Network == "ws" || p.Network == "httpupgrade" {
+		drop["h2"] = true
+	}
+
+	if len(drop) == 0 {
+		return list
+	}
+	out := list[:0]
+	for _, a := range list {
+		if !drop[a] {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // PinnedCertHex returns the pinned digest in the plain lowercase hex form the
@@ -931,6 +989,26 @@ type Status struct {
 	// already, and an update nobody is told about is an update nobody installs.
 	UpdateAvailable bool   `json:"update_available,omitempty"`
 	UpdateVersion   string `json:"update_version,omitempty"`
+
+	// CoreFaults are the errors the proxy core has repeated since it started,
+	// most frequent first. A connection that is up and still not right says so
+	// here and nowhere else: the log holds the last two thousand lines, which
+	// on a busy router is minutes, and the fault worth seeing is usually older
+	// than that and has happened hundreds of times since.
+	CoreFaults []CoreFault `json:"core_faults,omitempty"`
+}
+
+// CoreFault is one error a child process keeps producing, and how much.
+type CoreFault struct {
+	// Source is which process said it: the core, or the tunnel.
+	Source string `json:"source,omitempty"`
+	// Message is the error with the particulars of any single occurrence —
+	// connection id, address, port — taken out, since that is what makes two
+	// occurrences of the same fault comparable at all.
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+	First   string `json:"first,omitempty"`
+	Last    string `json:"last,omitempty"`
 }
 
 func splitList(s string) []string {

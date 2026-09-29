@@ -332,8 +332,23 @@ return baseclass.extend({
 
 	// canAutoPin reports whether accepting a changed certificate unseen is even
 	// an option to offer for this profile.
+	//
+	// Two ways to have nothing to verify against. The plain one is no name at
+	// all. The other is a name that is borrowed — a real hostname belonging to
+	// somebody else, which is how a great many of these servers are reached. It
+	// reads as verifiable right up until the certificate arrives and is for
+	// something else, and the only way to tell is to have looked: that is what
+	// pin_unverifiable records, written when the certificate was fetched.
+	//
+	// The same rule the daemon applies, and it has to stay the same rule: a
+	// switch this page offers and the daemon then refuses is worse than no
+	// switch.
 	canAutoPin: function(p) {
-		return !!p && p.security === 'tls' && this.verifiableName(p) === '';
+		if (!p || p.security !== 'tls')
+			return false;
+		if (this.verifiableName(p) === '')
+			return true;
+		return !!p.pinned_cert && !!p.pin_unverifiable;
 	},
 
 	// style returns the stylesheet xwrt's own tables need. Every view puts it

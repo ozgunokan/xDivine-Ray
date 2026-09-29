@@ -88,7 +88,8 @@ scp -r package/xwrt/files/* root@192.168.1.1:/
 ssh root@192.168.1.1 '
   ln -sf /usr/sbin/xwrt /usr/sbin/xwrtd
   chmod +x /usr/sbin/xwrt /etc/init.d/xwrt /usr/libexec/rpcd/xwrt \
-           /etc/uci-defaults/99-xwrt /etc/hotplug.d/firewall/99-xwrt
+           /etc/uci-defaults/99-xwrt /etc/hotplug.d/firewall/99-xwrt \
+           /etc/hotplug.d/iface/99-xwrt
   sh /etc/uci-defaults/99-xwrt
   /etc/init.d/rpcd restart
   /etc/init.d/xwrt enable && /etc/init.d/xwrt start
@@ -323,6 +324,50 @@ CLI and the LuCI page say so rather than showing a silently empty column.
 Nothing is written to flash: the history is a ring in memory, which is the
 right trade for a question about the present.
 
+### Errors that keep happening
+
+A lossy upstream makes the core fail the same way over and over. On a night's
+LTE log: forty-six identical WebSocket dial failures, each one retried
+immediately and successfully, none of them anything anybody needed to know.
+Other clients do the same and are simply quieter about it. Reporting all of
+that teaches its reader to stop reading, and then the failure that did matter
+goes past unread as well.
+
+The rate is what separates them. Ten of the same failure within eight minutes
+is a link that has gone, and is reported once — in the log, as the core's own
+line with what it stands for on the end:
+
+```
+21:04:57  core  ...websocket: failed to dial ... connection timed out  [×10 in 3m42s]
+```
+
+Anything slower is not reported at all, and nothing accumulates towards a
+report: a trickle across a night stays invisible rather than turning into a
+summary at dawn. A link that stays down reports once per burst, so a dead hour
+is a handful of lines instead of thousands.
+
+Errors are matched by shape, with the connection id, address and port taken
+out, so occurrences of one failure are recognised as one failure. Every
+occurrence is counted whether or not it is written; once a fault has burst, the
+status page lists it with its true total, first seen and last seen, worst
+first, reset when the core starts.
+
+Only WebSocket failures are filtered this way. The rate rule would be just as
+true of any transport, but WebSocket is the one that produces these in bulk —
+it waits for an HTTP answer before a connection counts as made, so a lossy line
+turns that wait into a failure — while the others fail rarely enough that their
+lines are worth reading. The match is on the core's package path,
+`transport/internet/websocket`, rather than on the word, so a server named
+after the protocol is not mistaken for it; a core that renamed that package
+would simply stop folding, which is the right direction for a filter to fail
+in.
+
+Two more things are outside the rule. A `[Fatal]` from the core — a config it
+will not accept, a port it cannot have — is always written: it happens once,
+which under a rule about rates would mean it happens silently. And the daemon's
+own failures are untouched: a connect that fails is still reported in full,
+once, with its step and what to do about it.
+
 ### DNS
 
 Three modes. `dnsmasq` (the default) drops a snippet in `/tmp/dnsmasq.d` that
@@ -336,6 +381,19 @@ hijacks port 53 in the firewall instead. `off` leaves DNS alone.
 whole nftables ruleset while doing it, taking this daemon's table with it. A
 hotplug hook asks the daemon to reapply; the daemon checks first and does
 nothing when its rules are still there.
+
+### Surviving a change of upstream address
+
+A mobile or PPPoE line goes away and comes back with a different address and
+gateway. Everything the daemon built stands on the old ones — the route that
+carries the tunnel's own packets, the capture rules, the core's sockets — so
+the tunnel keeps reporting connected while carrying nothing, and the core's
+log fills with `network is unreachable`.
+
+An interface hotplug hook tells the daemon when a link comes up. The daemon
+compares the WAN device, address and gateway against what it built on: it does
+nothing when they match, waits when the link has come up without a gateway
+yet, and reconnects when they have really changed.
 
 ## Configuration
 

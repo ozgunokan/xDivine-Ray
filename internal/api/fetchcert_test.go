@@ -175,3 +175,58 @@ func TestRefetchingTheSameCertificateIsNotAConflict(t *testing.T) {
 		t.Error("a re-fetch of the same certificate was reported as a replacement")
 	}
 }
+
+// Whether ordinary verification could have worked is recorded when the
+// certificate is fetched.
+//
+// It cannot be worked out any other way. A borrowed SNI is a real hostname and
+// reads as verifiable until the certificate arrives and is for something else;
+// a self-signed server reads the same way for a different reason. This is the
+// only moment either is visible, so it is the moment it gets written down.
+func TestFetchingRecordsThatNothingVouchesForTheCertificate(t *testing.T) {
+	s, id := pinServer(t, "")
+
+	if code, body := fetchCertCall(t, s, id, ""); code != http.StatusOK {
+		t.Fatalf("HTTP %d: %v", code, body)
+	}
+
+	d, err := s.store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.Profile(id)
+	// The stub server signs its own certificate, so no authority vouches for
+	// it and ordinary verification can never succeed here — whatever name is
+	// sent. A pin is the only thing standing, which is exactly the state the
+	// mark exists to record.
+	if !p.PinUnverifiable {
+		t.Error("a self-signed certificate was recorded as one that could be " +
+			"verified the ordinary way")
+	}
+	if !p.CanAutoPin() {
+		t.Error("and the profile is still refused the option, on a server " +
+			"where a pin is the only thing there is")
+	}
+}
+
+// A borrowed name reaches the same state by the other route.
+func TestABorrowedNameIsRecordedTheSameWay(t *testing.T) {
+	s, id := pinServer(t, "")
+	if _, err := s.store.Update(func(d *ucicfg.Data) error {
+		d.Profile(id).SNI = "cdn.whatsapp.net"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, body := fetchCertCall(t, s, id, ""); code != http.StatusOK {
+		t.Fatalf("HTTP %d: %v", code, body)
+	}
+
+	d, _ := s.store.Load()
+	if !d.Profile(id).PinUnverifiable {
+		t.Error("a certificate that is not for the name being sent was not " +
+			"recorded, so the profile is still treated as one that could be " +
+			"verified the ordinary way")
+	}
+}

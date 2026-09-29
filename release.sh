@@ -77,6 +77,7 @@ for target in dist/*/; do
 
 	chmod 755 "$stage/etc/init.d/xwrt" "$stage/usr/libexec/rpcd/xwrt" \
 		"$stage/etc/uci-defaults/99-xwrt" "$stage/etc/hotplug.d/firewall/99-xwrt" \
+		"$stage/etc/hotplug.d/iface/99-xwrt" \
 		"$stage/usr/libexec/xwrt-teardown"
 
 	cat > "$stage/install.sh" <<'INSTALL'
@@ -353,7 +354,8 @@ if [ -n "$KEEP" ]; then
 fi
 ln -sf /usr/sbin/xwrt /usr/sbin/xwrtd
 chmod 755 /usr/sbin/xwrt /etc/init.d/xwrt /usr/libexec/rpcd/xwrt \
-	/etc/uci-defaults/99-xwrt /etc/hotplug.d/firewall/99-xwrt
+	/etc/uci-defaults/99-xwrt /etc/hotplug.d/firewall/99-xwrt \
+	/etc/hotplug.d/iface/99-xwrt
 
 # Every shipped file is compared with the copy that landed. This is the step
 # that was missing: without it, a half-finished install is indistinguishable
@@ -611,7 +613,8 @@ fi
 echo "==> removing files"
 rm -f /usr/sbin/xwrt /usr/sbin/xwrtd /etc/init.d/xwrt \
 	/usr/libexec/rpcd/xwrt /usr/libexec/xwrt-teardown \
-	/etc/hotplug.d/firewall/99-xwrt /etc/uci-defaults/99-xwrt
+	/etc/hotplug.d/firewall/99-xwrt /etc/hotplug.d/iface/99-xwrt \
+	/etc/uci-defaults/99-xwrt
 rm -rf /www/luci-static/resources/view/xwrt /www/luci-static/resources/xwrt
 rm -f /www/luci-static/resources/xwrt.js \
 	/usr/share/luci/menu.d/luci-app-xwrt.json \

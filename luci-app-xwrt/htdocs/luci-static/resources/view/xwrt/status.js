@@ -196,6 +196,51 @@ function failureBanner(failure) {
 	return E('div', { 'class': 'alert-message warning' }, parts);
 }
 
+// --- what keeps going wrong ---------------------------------------------
+//
+// A tunnel can be up, carrying traffic, showing green here, and still be
+// failing — but only some of that is worth a person's attention. The odd
+// failure on a mobile line is retried and works; a night of them changes
+// nothing and telling somebody about it only teaches them to stop looking at
+// this panel. Ten of the same failure inside a few minutes is different: that
+// is a link that has gone, while the page still says connected.
+//
+// So the daemon reports the second and stays quiet about the first, and this
+// is where its answer is read. Nothing appears here on a device that is having
+// an ordinary bad night, which is the point: something here means something
+// happened.
+
+function faultLine(fault) {
+	var when = fault.last ? xwrt.localDateTime(fault.last) : '';
+	return E('div', { 'class': 'tr' }, [
+		E('div', { 'class': 'td left', 'style': 'width:5em;white-space:nowrap' },
+			E('strong', {}, '× ' + (fault.count || 0))),
+		E('div', { 'class': 'td left' }, [
+			// Not translated, deliberately: this is the core's own sentence,
+			// and it is the string somebody will paste into a search box.
+			E('code', { 'style': 'word-break:break-word' }, fault.message || ''),
+			when ? E('div', { 'style': 'color:#9e9e9e;font-size:90%;margin-top:.2em' },
+				_('last seen %s').format(when)) : ''
+		])
+	]);
+}
+
+function faultBox(status) {
+	var faults = (status && status.core_faults) || [];
+	if (!faults.length)
+		return [];
+
+	return E('div', { 'class': 'cbi-section' }, [
+		E('h3', {}, _('Repeated errors')),
+		E('div', { 'class': 'cbi-section-descr' },
+			_('Failures that arrived in a rush — ten of the same one within minutes, which is what a link that has gone looks like. The odd failure here and there is retried straight away and is normal on any line.')),
+		xwrt.scroll(E('div', { 'class': 'table xwrt-table' }, faults.map(faultLine))),
+		E('div', { 'style': 'margin-top:.6em' },
+			E('a', { 'href': L.url('admin', 'vpn', 'xdivine-ray', 'logs') },
+				_('Open the log')))
+	]);
+}
+
 // --- self-test ----------------------------------------------------------
 //
 // Three measurements answer the question people actually ask ("why is the VPN
@@ -532,6 +577,7 @@ return view.extend({
 					xwrt.formatBytes(st.downlink) + ' (' + xwrt.formatRate(st.downlink_rate) + ')');
 				dom.content(document.getElementById('xwrt-error'),
 					failureBanner(s.last_error));
+				dom.content(document.getElementById('xwrt-faults'), faultBox(s));
 				redrawActions(s);
 			});
 		}, 3);
@@ -553,6 +599,11 @@ return view.extend({
 						actionButtons(status, select, self))
 				])
 			].concat(memberTable(status))),
+
+			// Its own container, because the section appears and disappears
+			// with the count: a heading that is always there with nothing under
+			// it teaches people that this page has a dead area.
+			E('div', { 'id': 'xwrt-faults' }, faultBox(status)),
 
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Speed and latency test')),

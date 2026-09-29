@@ -197,6 +197,10 @@ func (e *Engine) Status() model.Status {
 		Stats:       e.stats,
 		Version:     Version,
 		CoreVersion: e.coreVersion,
+		// Four, because this is a summary and not a log. A device with more
+		// than four distinct faults running at once has a different problem,
+		// and the log is where that one is read.
+		CoreFaults: e.Log.Faults(4),
 	}
 	if e.tun != nil {
 		st.TunRunning = e.tun.Running()
@@ -575,6 +579,9 @@ func (e *Engine) startLocked(p *model.Profile, g *model.Group, members []model.P
 		},
 	}
 	e.coreStarting.Store(true)
+	// The tally counts from here, so what it reports is always "since this
+	// core started" — a number with a window somebody can name.
+	e.Log.ResetFaults()
 	if err := e.core.Start(); err != nil {
 		e.coreStarting.Store(false)
 		return fail(model.StepCore, "core.start", s.XrayBin, err).
@@ -1498,11 +1505,26 @@ func (e *Engine) waitForCore(port int, timeout time.Duration) error {
 		}
 		conn, err := net.DialTimeout("tcp", addr, time.Second)
 		if err == nil {
+			// Say hello properly rather than hanging up mid-handshake. See
+			// socksprobe.go: a bare connect-and-close makes the core file an
+			// ERROR against itself on every connect, and that line has already
+			// cost more debugging time than this exchange will ever cost.
+			greeted := greetSocks(conn, 2*time.Second)
 			conn.Close()
 			// One more liveness check: a listener can belong to something else
 			// entirely, and a dead core with a stranger on its port is the one
 			// failure that would otherwise be reported as success.
 			if e.core.Exits() == 0 {
+				// The greeting can also answer that question, and when it does
+				// the answer is worth keeping. It is not allowed to veto the
+				// verdict, though: a port that accepts connections has always
+				// been enough to proceed, and a core that answered in some way
+				// this daemon did not expect must not be left unreachable for
+				// ten seconds and then declared dead.
+				if greeted != nil {
+					e.Log.Debugf("socks %d answered, but not as a SOCKS server: %v",
+						port, greeted)
+				}
 				return nil
 			}
 			continue

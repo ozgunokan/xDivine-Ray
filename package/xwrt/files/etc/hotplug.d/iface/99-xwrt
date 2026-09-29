@@ -1,0 +1,28 @@
+#!/bin/sh
+# Rebuild the connection when the upstream link comes back somewhere else.
+#
+# An LTE or PPPoE line goes away and returns a few minutes later with a
+# different address and usually a different gateway. Everything the daemon
+# built — the route carrying the tunnel's own packets, the capture rules, the
+# core's sockets — was built on the old ones, so the tunnel stays "connected"
+# and carries nothing. The daemon cannot see this happen; netifd can, and this
+# is how it tells it.
+#
+# The daemon compares before it acts, so being called on every ifup of every
+# interface costs nothing when nothing moved.
+
+[ -x /usr/sbin/xwrt ] || exit 0
+[ "$ACTION" = "ifup" ] || exit 0
+
+case "$INTERFACE" in
+	# The LAN side is not what the tunnel leaves by, and xwrt's own tunnel
+	# device coming up must not ask xwrt to rebuild the thing that brought it
+	# up.
+	lan|lan[0-9]*|loopback|xwrt*) exit 0 ;;
+esac
+
+# Detached, so a rebuild never holds up the rest of netifd's work on this
+# interface.
+/usr/sbin/xwrt wan-changed "$INTERFACE" >/dev/null 2>&1 &
+
+exit 0

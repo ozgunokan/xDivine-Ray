@@ -29,7 +29,7 @@ var knownOptions = map[string]map[string]bool{
 	typeProfile: set(
 		"name", "proto", "address", "port", "uuid", "password", "method", "alter_id",
 		"encryption", "flow", "net", "security", "sni", "alpn", "fp",
-		"pbk", "sid", "spx", "allow_insecure", "pinned_cert", "pin_auto",
+		"pbk", "sid", "spx", "allow_insecure", "pinned_cert", "pin_auto", "pin_unverifiable",
 		"path", "host", "service_name", "header_type", "seed",
 		"quic_security", "quic_key", "mux", "sub", "remark",
 	),

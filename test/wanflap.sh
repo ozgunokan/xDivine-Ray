@@ -169,10 +169,10 @@ ifup "$WAN"
 kill "$watchdog" 2>/dev/null
 
 # --- settle ------------------------------------------------------------------
-# The daemon is told about the new interface by procd and reconnects on its
-# own; this waits for that rather than measuring the middle of it. It stops
-# early once the tunnel is back, so a good router does not sit here for the
-# full time.
+# The interface hotplug hook tells the daemon when the link comes back up, and
+# the daemon rebuilds the connection if the address or the gateway moved. This
+# waits for that rather than measuring the middle of it. It stops early once
+# the tunnel is back, so a good router does not sit here for the full time.
 say "-- waiting up to ${SETTLE}s for the line and the tunnel to come back"
 i=0
 while [ "$i" -lt "$SETTLE" ]; do
@@ -226,6 +226,21 @@ if [ "$rules_after" -lt "$rules_before" ]; then
 	say "FAIL capture rules are missing: $rules_after lines where there were" \
 		"$rules_before. Nothing is being proxied."
 	fail=1
+fi
+
+# When the address really changed, the daemon should say so in its own words.
+# A tunnel that came back without this line came back by luck — the core
+# reconnecting on its own — rather than because anything noticed, and luck is
+# what this whole hook exists to replace.
+if [ "$addr_after" != "$addr_before" ]; then
+	if xwrt logs 400 2>/dev/null | grep -q "rebuilding the connection"; then
+		say "upstream change: noticed, and the connection was rebuilt on it"
+	else
+		say "FAIL the address changed and the daemon never said it noticed."
+		say "     Check that /etc/hotplug.d/iface/99-xwrt is installed and"
+		say "     executable, and that this interface is not filtered out of it."
+		fail=1
+	fi
 fi
 
 # And the check that matters more than any count: does traffic actually go

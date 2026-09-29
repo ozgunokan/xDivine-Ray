@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -98,6 +99,16 @@ func RunCLI(argv []string) int {
 		err = post("/api/disconnect", nil)
 	case "reapply-fw":
 		err = post("/api/firewall/reapply", nil)
+	case "wan-changed":
+		// Called by the interface hotplug hook, with the interface that came
+		// up. The daemon decides whether it matters; this end only carries the
+		// news, and says nothing when the answer is "it does not", because
+		// this runs on every ifup of every interface on the device.
+		iface := "unknown"
+		if len(args) > 0 && args[0] != "" {
+			iface = args[0]
+		}
+		err = post("/api/wan/changed?iface="+url.QueryEscape(iface), nil)
 
 	case "update":
 		// `xwrt update` asks; `xwrt update install` installs. Two words rather
@@ -565,6 +576,9 @@ func usage() {
                                  (defaults to the stored selection)
   xwrt disconnect                disconnect and remove all rules
   xwrt reapply-fw                reinstall capture rules after a firewall reload
+  xwrt wan-changed [iface]       rebuild the connection if the upstream link
+                                 came back on a different address or gateway
+                                 (called by the interface hotplug hook)
   xwrt config                    print the whole configuration as JSON
   xwrt config check < file.json  say whether that document would be accepted
   xwrt config apply < file.json  replace the configuration with it

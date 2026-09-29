@@ -314,13 +314,13 @@ var TR = {
 	"Download a backup":
 		"Yedeği indir",
 	"Load a backup file…":
-		"Yedek dosyası yükle…",
+		"Yedek dosyası aç…",
 	"A backup file is this document and nothing else, so it can be restored from here or with \"xwrt restore\". Loading a file only fills the box — press Check, then Save. It does not carry the firewall or anything else outside this app.":
 		"Yedek dosyası tam olarak bu belgedir, başka bir şey değil; bu yüzden buradan ya da `xwrt restore` ile geri yüklenebilir. Dosya yüklemek yalnızca kutuyu doldurur — Denetle, sonra Kaydet. Güvenlik duvarını ya da bu uygulamanın dışındaki hiçbir şeyi taşımaz.",
-	"Idle connection timeout":
-		"Boşta bağlantı zaman aşımı",
-	"Seconds a connection may carry nothing before the core closes it. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. Lower it only if you know why.":
-		"Bir bağlantının, çekirdek onu kapatmadan önce kaç saniye hiçbir şey taşımadan durabileceği. Telefonlar bildirim sunucusuna açtıkları tek bağlantıyı saatlerce hiçbir şey göndermeden açık tutar; o bağlantıyı kapatmak bildirimlerin geç gelmesine ya da hiç gelmemesine yol açar. Ne yaptığını biliyorsan düşür.",
+	"Idle connection timeout (seconds)":
+		"Boşta bağlantı zaman aşımı (saniye)",
+	"How long a connection may carry nothing before the core closes it. The default, 14400, is four hours. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. Lower it only if you know why.":
+		"Bir bağlantının, çekirdek onu kapatmadan önce ne kadar süre hiçbir şey taşımadan durabileceği. Varsayılan 14400, yani dört saat. Telefonlar bildirim sunucusuna açtıkları tek bağlantıyı saatlerce hiçbir şey göndermeden açık tutar; o bağlantıyı kapatmak bildirimlerin geç gelmesine ya da hiç gelmemesine yol açar. Ne yaptığını biliyorsan düşür.",
 	"Certificate pinned":
 		"Sertifika sabitlendi",
 	"The certificate has changed":
@@ -618,7 +618,7 @@ var TR = {
 	"Check":
 		"Denetle",
 	"Reload from the device":
-		"Cihazdan yeniden y\u00fckle",
+		"Cihazdakini getir",
 	"Check says whether the document would be accepted, without saving it. A section left out of the document is refused rather than obeyed \u2014 to empty one, give it an empty list.":
 		"Denetle, belgenin kabul edilip edilmeyece\u011fini kaydetmeden s\u00f6yler. Belgeden \u00e7\u0131kar\u0131lm\u0131\u015f bir b\u00f6l\u00fcm uygulanmaz, reddedilir \u2014 bir b\u00f6l\u00fcm\u00fc bo\u015faltmak i\u00e7in ona bo\u015f liste verin.",
 	"Kernel connection table: %d of %d (%d%%).":
@@ -775,6 +775,12 @@ var TR = {
 		"Bu cihazın ağ yapısını çalışma anında algılayan VPN yöneticisi.",
 	"Connection":
 		"Bağlantı",
+	"Repeated errors":
+		"Tekrarlayan hatalar",
+	"Failures that arrived in a rush — ten of the same one within minutes, which is what a link that has gone looks like. The odd failure here and there is retried straight away and is normal on any line.":
+		"Arka arkaya gelen hatalar — birkaç dakika içinde aynı hatadan on tane, ki bu hattın düştüğü anlamına gelir. Tek tük hata her hatta olur, sistem hemen yeniden bağlanır.",
+	"last seen %s":
+		"son görülme %s",
 	"Speed and latency test":
 		"Hız ve gecikme testi",
 	"Connects to the same address both directly and through the tunnel, and shows the difference. This is how you see where the delay comes from.":

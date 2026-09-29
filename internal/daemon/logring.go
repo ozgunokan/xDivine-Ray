@@ -35,6 +35,12 @@ type LogRing struct {
 	subs map[int]chan model.LogEntry
 	seq  int
 
+	// faults counts what the child processes keep repeating. Separate from
+	// both rings on purpose: a ring answers "what happened", and the question
+	// a repeated error raises is "how often", which no ring of any size can
+	// answer once it has turned over.
+	faults *faultTally
+
 	sink *syslogSink
 }
 
@@ -48,6 +54,7 @@ func NewLogRing(size int) *LogRing {
 		entries: make([]model.LogEntry, size),
 		errors:  make([]model.ErrorEntry, 100),
 		subs:    map[int]chan model.LogEntry{},
+		faults:  newFaultTally(40),
 		sink:    newSyslogSink("xwrt"),
 	}
 }
@@ -230,7 +237,43 @@ func (r *LogRing) AddProcessLine(source model.Source, line string) {
 	if line == "" {
 		return
 	}
-	r.emit(classify(line), source, model.StepNone, line)
+	level := classify(line)
+	// Counted here rather than in emit, because this is the only path a child
+	// process takes. The daemon's own messages are not counted: they are
+	// written deliberately, one per event, and a daemon message repeating four
+	// hundred times is a bug in the daemon rather than a fault in the field.
+	if level.AtLeast(model.LevelError) && r.faults != nil {
+		// Counted first and always, and for every transport: the count is what
+		// the status page reads, and a fault that is written in full is still
+		// worth summarising. Only the writing is filtered, and only for the one
+		// transport that produces these in bulk.
+		s := r.faults.add(source, line, time.Now())
+		if isWebsocketFault(line) && !isFatal(line) {
+			note, write := burstNote(s)
+			if !write {
+				return
+			}
+			line += note
+		}
+	}
+	r.emit(level, source, model.StepNone, line)
+}
+
+// Faults returns the errors the child processes keep repeating, most frequent
+// first.
+func (r *LogRing) Faults(limit int) []model.CoreFault {
+	if r.faults == nil {
+		return nil
+	}
+	return r.faults.top(limit)
+}
+
+// ResetFaults starts the count again, which the engine does when it starts a
+// core: a count whose window nobody can name is a number nobody can use.
+func (r *LogRing) ResetFaults() {
+	if r.faults != nil {
+		r.faults.reset()
+	}
 }
 
 func (r *LogRing) emit(level model.Level, source model.Source, step model.Step, msg string) {
