@@ -43,7 +43,7 @@ check('the credentials warning comes before the document',
 	warnAt >= 0 && boxAt >= 0 && warnAt < boxAt);
 
 // 3. Both buttons are there, and Check is not the destructive one.
-[ 'Denetle', 'Kaydet', 'Cihazdakini getir' ].forEach(function(label) {
+[ 'Denetle', 'Kaydet', 'Düzenlemeleri geri al', 'Fabrika ayarlarına döndür' ].forEach(function(label) {
 	check('there is a "' + label + '" button', text.indexOf(label) >= 0);
 });
 

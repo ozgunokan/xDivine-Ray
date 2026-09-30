@@ -14,7 +14,8 @@
 					"rules",
 					"traffic",
 					"connections",
-					"update"
+					"update",
+					"update_log"
 				]
 			},
 			"uci": [ "xwrt" ]
@@ -28,6 +29,7 @@
 					"clear_error",
 					"clear_errors",
 					"clear_log",
+					"reset_config",
 					"selftest",
 					"import",
 					"add_profile",

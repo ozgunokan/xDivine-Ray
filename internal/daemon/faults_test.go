@@ -94,7 +94,7 @@ func TestTwoFaultsThatDifferInWordsAreNotMerged(t *testing.T) {
 // runs a group of five.
 func TestTheSameFailureToTwoServersIsOneFault(t *testing.T) {
 	a := faultKey(`2026/09/20 21:04:16 [Error] transport/internet/websocket: failed to dial WebSocket > dial tcp 185.199.108.1:443: i/o timeout`)
-	b := faultKey(`2026/09/20 21:05:01 [Error] transport/internet/websocket: failed to dial WebSocket > dial tcp 87.121.104.212:443: i/o timeout`)
+	b := faultKey(`2026/09/20 21:05:01 [Error] transport/internet/websocket: failed to dial WebSocket > dial tcp 198.51.100.20:443: i/o timeout`)
 	if a != b {
 		t.Fatalf("one fault, two shapes:\n  %q\n  %q", a, b)
 	}
@@ -239,7 +239,7 @@ func TestOnlyWebSocketFailuresAreEverHidden(t *testing.T) {
 	for i := 0; i < 3*burstSize; i++ {
 		// Same rate, same shape, different transport.
 		r.AddProcessLine(model.SourceCore,
-			`2026/09/20 21:04:16 [Error] [728072] app/proxyman/outbound: failed to process outbound traffic > proxy/vless/outbound: failed to find an available destination > common/retry: all retry attempts failed > dial tcp 111.235.150.237:443: i/o timeout`)
+			`2026/09/20 21:04:16 [Error] [728072] app/proxyman/outbound: failed to process outbound traffic > proxy/vless/outbound: failed to find an available destination > common/retry: all retry attempts failed > dial tcp 203.0.113.10:443: i/o timeout`)
 	}
 	if got := len(r.Entries(Query{Source: model.SourceCore})); got != 3*burstSize {
 		t.Fatalf("a non-WebSocket failure must be written every time, got %d", got)

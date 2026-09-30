@@ -19,7 +19,7 @@ import (
 var knownOptions = map[string]map[string]bool{
 	typeMain: set(
 		"enabled", "active", "active_kind", "mode",
-		"socks_port", "http_port", "tproxy_port", "dns_port", "stats_port", "api_port", "conn_idle",
+		"socks_port", "http_port", "tproxy_port", "dns_port", "stats_port", "api_port", "conn_idle", "keepalive",
 		"dns", "dns_mode", "log_level", "allow_lan", "auto_connect", "ipv6",
 		"proxy_router", "xray_bin", "hev_bin", "run_dir",
 		"tun_name", "tun_addr", "tun_mask", "tun_mtu",

@@ -57,7 +57,30 @@ type UpdateInfo struct {
 	// so rather than offering the button twice.
 	Installing bool   `json:"installing"`
 	LogPath    string `json:"log_path,omitempty"`
+
+	// What a running install is doing, for the window that shows it. Stage is
+	// one of the Stage* names below; Target is the version being installed;
+	// Done and Total are the download in bytes, Total 0 when unknown.
+	//
+	// These describe this process's part of the install only. The last part —
+	// the installer stopping this service and starting the new one — cannot be
+	// reported by the thing being replaced, and the interface infers it from
+	// the daemon going quiet and coming back with a different version.
+	Stage  string `json:"stage,omitempty"`
+	Target string `json:"target,omitempty"`
+	Done   int64  `json:"done,omitempty"`
+	Total  int64  `json:"total,omitempty"`
 }
+
+// The stages of an install, in order, as the interface names them.
+const (
+	StageChecking    = "checking"
+	StageDownloading = "downloading"
+	StageVerifying   = "verifying"
+	StageUnpacking   = "unpacking"
+	StageInstalling  = "installing"
+	StageFailed      = "failed"
+)
 
 // updateInterval is how often the daemon looks, when looking is enabled. Once
 // a day: a release is not urgent, and a router that asks more often is one
@@ -73,6 +96,20 @@ type updater struct {
 	mu         sync.Mutex
 	info       UpdateInfo
 	installing bool
+
+	// Progress, kept apart from info on purpose. The daily check replaces info
+	// wholesale, and a check that lands in the middle of an install must not
+	// wipe out what the install is showing.
+	stage       string
+	target      string
+	done, total int64
+}
+
+// setStage records where the install has got to.
+func (e *Engine) setStage(stage string) {
+	e.updater.mu.Lock()
+	e.updater.stage = stage
+	e.updater.mu.Unlock()
 }
 
 // Update returns the last thing the daemon learned about releases.
@@ -85,6 +122,9 @@ func (e *Engine) Update() UpdateInfo {
 	if info.Installing {
 		info.LogPath = updateLog
 	}
+	info.Stage = e.updater.stage
+	info.Target = e.updater.target
+	info.Done, info.Total = e.updater.done, e.updater.total
 	return info
 }
 
@@ -167,6 +207,49 @@ func (e *Engine) WatchUpdates() {
 // useful to wait for: this process is about to be stopped by what it just
 // started.
 func (e *Engine) InstallUpdate() error {
+	if err := e.claimInstall(); err != nil {
+		return err
+	}
+	return e.runInstall()
+}
+
+// StartUpdate is InstallUpdate for a caller that will not wait: it claims the
+// install, starts it, and returns. The interface uses this, because the
+// download can take longer than a browser's RPC call is allowed to, and a call
+// that times out there reads as a failure while the install carries on
+// regardless. The interface asks Update for progress instead.
+func (e *Engine) StartUpdate() error {
+	if err := e.claimInstall(); err != nil {
+		return err
+	}
+	go func() { _ = e.runInstall() }()
+	return nil
+}
+
+// errAlreadyInstalling is its own value so the API can answer it as a conflict
+// rather than a failure: the install the caller wanted is already happening.
+var errAlreadyInstalling = fmt.Errorf("an update is already being installed; see %s", updateLog)
+
+// IsAlreadyInstalling reports whether err is the conflict above.
+func IsAlreadyInstalling(err error) bool { return err == errAlreadyInstalling }
+
+func (e *Engine) claimInstall() error {
+	e.updater.mu.Lock()
+	defer e.updater.mu.Unlock()
+	if e.updater.installing {
+		return errAlreadyInstalling
+	}
+	e.updater.installing = true
+	e.updater.stage = StageChecking
+	e.updater.target = ""
+	e.updater.done, e.updater.total = 0, 0
+	// A failure from an earlier attempt is not this attempt's failure.
+	e.updater.info.CheckError = ""
+	e.updater.info.ErrorCode, e.updater.info.ErrorArgs = "", nil
+	return nil
+}
+
+func (e *Engine) runInstall() error {
 	// Its own deadline rather than the caller's. The request that asked for
 	// this is going to be cut off partway through — the installer stops the
 	// service, which closes the connection the answer would have travelled on —
@@ -175,18 +258,11 @@ func (e *Engine) InstallUpdate() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	e.updater.mu.Lock()
-	if e.updater.installing {
-		e.updater.mu.Unlock()
-		return fmt.Errorf("an update is already being installed; see %s", updateLog)
-	}
-	e.updater.installing = true
-	e.updater.mu.Unlock()
-
 	done := func(err error) error {
 		if err != nil {
 			e.updater.mu.Lock()
 			e.updater.installing = false
+			e.updater.stage = StageFailed
 			e.updater.info.CheckError = err.Error()
 			if code, args, ok := fault.CodeOf(err); ok {
 				e.updater.info.ErrorCode, e.updater.info.ErrorArgs = code, args
@@ -214,6 +290,10 @@ func (e *Engine) InstallUpdate() error {
 		return done(fmt.Errorf("release %s carries no verifiable bundle for %s",
 			rel.Version, update.Arch()))
 	}
+	e.updater.mu.Lock()
+	e.updater.target = rel.Version
+	e.updater.total = rel.Size
+	e.updater.mu.Unlock()
 
 	// Somewhere with room. /tmp is RAM on most routers and a bundle is a few
 	// megabytes, which is why the size is checked against what is free rather
@@ -222,10 +302,21 @@ func (e *Engine) InstallUpdate() error {
 	os.RemoveAll(dir)
 
 	e.Log.Infof("downloading %s (%s)", rel.Version, rel.AssetName)
-	path, err := update.Fetch(ctx, rel, dir)
+	path, err := update.FetchWith(ctx, rel, dir, update.Progress{
+		Stage: e.setStage,
+		Bytes: func(n, total int64) {
+			e.updater.mu.Lock()
+			e.updater.done = n
+			if total > 0 {
+				e.updater.total = total
+			}
+			e.updater.mu.Unlock()
+		},
+	})
 	if err != nil {
 		return done(err)
 	}
+	e.setStage(StageUnpacking)
 
 	unpacked := filepath.Join(dir, "unpacked")
 	if err := os.MkdirAll(unpacked, 0o700); err != nil {
@@ -286,8 +377,33 @@ func (e *Engine) InstallUpdate() error {
 	}
 	// Not waited for on purpose: it is going to stop this process.
 	go func() { _ = cmd.Wait() }()
+	e.setStage(StageInstalling)
 
 	e.Log.Infof("installing %s; the service will restart. Progress: %s",
 		rel.Version, updateLog)
 	return nil
+}
+
+// updateLogPath is the log a detached install writes to; a variable only so a
+// test can point it somewhere of its own.
+var updateLogPath = updateLog
+
+// UpdateLog returns the last lines an install wrote.
+//
+// This is what the interface shows when an update did not end on the version
+// it was going to. The installer runs detached and outlives the process that
+// started it, so its log is the only account there is of what happened in the
+// part nobody could watch — and a rollback, in particular, is worth reading
+// rather than guessing at.
+func UpdateLog(lines int) string {
+	b, err := os.ReadFile(updateLogPath)
+	if err != nil {
+		return ""
+	}
+	text := strings.TrimRight(string(b), "\n")
+	all := strings.Split(text, "\n")
+	if lines > 0 && len(all) > lines {
+		all = all[len(all)-lines:]
+	}
+	return strings.Join(all, "\n")
 }

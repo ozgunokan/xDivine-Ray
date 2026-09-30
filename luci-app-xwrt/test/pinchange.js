@@ -30,11 +30,11 @@ var CONFLICT = {
 	current_pin: 'aaaa000000000000000000000000000000000000000000000000000000000000',
 	found: {
 		pin: 'bbbb111111111111111111111111111111111111111111111111111111111111',
-		endpoint: '87.121.104.212:443',
-		sni: '87.121.104.212',
+		endpoint: '198.51.100.20:443',
+		sni: '198.51.100.20',
 		trusted: false,
 		chain: [{
-			subject: 'CN=87.121.104.212',
+			subject: 'CN=198.51.100.20',
 			issuer: 'CN=Some Middlebox CA',
 			not_before: '2026-09-27T22:10:00Z',
 			not_after: '2027-09-27T22:10:00Z',
@@ -129,8 +129,8 @@ first.done.then(function() {
 	global.xwrt.fetchCert = function(id, replace) {
 		second++;
 		check('trusting it asks the daemon to replace the pin', replace === true);
-		return Promise.resolve({ pin: CONFLICT.found.pin, endpoint: '87.121.104.212:443',
-			sni: '87.121.104.212', trusted: false, chain: CONFLICT.found.chain });
+		return Promise.resolve({ pin: CONFLICT.found.pin, endpoint: '198.51.100.20:443',
+			sni: '198.51.100.20', trusted: false, chain: CONFLICT.found.chain });
 	};
 	trust.click();
 

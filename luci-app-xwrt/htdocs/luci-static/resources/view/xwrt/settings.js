@@ -259,6 +259,14 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.default = '14400';
 
+		// The other half of the same problem. The setting above stops this
+		// device closing a quiet connection; this one stops everything out on
+		// the line — the operator's NAT, a DPI box — from forgetting it.
+		o = s.taboption('advanced', form.Value, 'keepalive', _('Keep-alive interval (seconds)'),
+			_('How often the tunnel\'s connections to the server are made to carry something while nothing is being sent. The operator\'s equipment forgets a connection it has not seen traffic on, without telling either end; a phone\'s push connection riding inside it is lost until the phone\'s next heartbeat. WebSocket connections send a ping the server answers, and every TCP connection gets keepalive probes. The default is 30. Allowed: 10 to 600. -1 turns it off.'));
+		o.datatype = 'integer';
+		o.default = '30';
+
 		o = s.taboption('advanced', form.Value, 'tun_name', _('TUN device name'),
 			_('If you change this, update the xwrt firewall zone to match, or forwarded traffic is dropped.'));
 		o.default = 'xwrt0';

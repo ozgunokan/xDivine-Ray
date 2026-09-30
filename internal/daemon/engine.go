@@ -783,6 +783,38 @@ func (e *Engine) Disconnect() error {
 	return nil
 }
 
+// FactoryReset puts this app back the way a fresh install leaves it: nothing
+// connected, no capture rules, no servers, groups, rules or subscriptions, and
+// every setting at its default.
+//
+// The tunnel is taken down first and on purpose. A reset that left the old
+// connection running would leave the device in a state nobody chose — carrying
+// traffic through a server that no longer appears anywhere in its
+// configuration, until the next reconnect quietly stopped it.
+//
+// On a line whose only way out is the tunnel, this ends the internet until a
+// server is added again. The interface says so before asking, and offers a
+// backup first; importing a share link needs no internet, so the way back is
+// always open from the LAN side.
+func (e *Engine) FactoryReset() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.teardownLocked()
+	if err := e.store.Save(ucicfg.Factory()); err != nil {
+		return fmt.Errorf("could not write the factory configuration: %w", err)
+	}
+	// Failures and counts from the old configuration describe servers that no
+	// longer exist here; a banner about one of them would be a riddle.
+	e.Log.ClearErrors()
+	e.Log.ResetFaults()
+	// A warning, so it is in the system log too: when someone asks why every
+	// server vanished, this is the line that answers.
+	e.Log.Warnf("reset to factory settings: servers, groups, rules and " +
+		"subscriptions removed, settings back to their defaults")
+	return nil
+}
+
 // teardownLocked reverses everything in the opposite order it was applied.
 //
 // Nothing here aborts on an error. A teardown that stops half-way is worse than

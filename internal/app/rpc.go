@@ -115,7 +115,22 @@ func rpcMethods() map[string]rpcMethod {
 		"update_install": {
 			Signature: map[string]any{},
 			Call: func(map[string]any) ([]byte, error) {
-				return fetch(http.MethodPost, "/api/update/install", nil)
+				// Asynchronous from here: the interface starts the install and
+				// then asks for progress, because the download can outlast the
+				// time a browser's call is allowed.
+				return fetch(http.MethodPost, "/api/update/install?async=1", nil)
+			},
+		},
+		"reset_config": {
+			Signature: map[string]any{},
+			Call: func(map[string]any) ([]byte, error) {
+				return fetch(http.MethodPost, "/api/config/reset", nil)
+			},
+		},
+		"update_log": {
+			Signature: map[string]any{},
+			Call: func(map[string]any) ([]byte, error) {
+				return fetch(http.MethodGet, "/api/update/log", nil)
 			},
 		},
 		"selftest": {

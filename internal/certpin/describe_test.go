@@ -30,7 +30,7 @@ func TestAShortLivedCertificateIsNamedAsOne(t *testing.T) {
 	now := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
 	// Caddy's internal authority issues twelve-hour leaves; a pin taken from
 	// one is stale before lunch.
-	r := result("CN=87.121.104.212", "CN=Local", now.Add(-2*time.Hour), now.Add(10*time.Hour), false)
+	r := result("CN=198.51.100.20", "CN=Local", now.Add(-2*time.Hour), now.Add(10*time.Hour), false)
 
 	n := r.Describe(now)
 
@@ -83,7 +83,7 @@ func TestARegeneratedSelfSignedCertificateIsNamedAsOne(t *testing.T) {
 // innocent ones, and it must say to look before trusting.
 func TestAnUnvouchedForeignCertificateIsNotExplainedAway(t *testing.T) {
 	now := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
-	r := result("CN=87.121.104.212", "CN=Some Middlebox CA",
+	r := result("CN=198.51.100.20", "CN=Some Middlebox CA",
 		now.Add(-400*time.Hour), now.Add(300*24*time.Hour), false)
 
 	n := r.Describe(now)

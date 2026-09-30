@@ -298,6 +298,10 @@ type Sockopt struct {
 	TProxy         string `json:"tproxy,omitempty"`
 	TCPFastOpen    *bool  `json:"tcpFastOpen,omitempty"`
 	DomainStrategy string `json:"domainStrategy,omitempty"`
+	// TCP keepalive on the socket to the server, in seconds. Unset, the core
+	// uses 45 for both. See keepalive.go.
+	TCPKeepAliveIdle     int `json:"tcpKeepAliveIdle,omitempty"`
+	TCPKeepAliveInterval int `json:"tcpKeepAliveInterval,omitempty"`
 }
 
 type TLSSettings struct {
@@ -339,6 +343,9 @@ type WSSettings struct {
 	Path    string            `json:"path,omitempty"`
 	Host    string            `json:"host,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+	// HeartbeatPeriod is how often, in seconds, a WebSocket ping is sent. The
+	// core's default is 0: none at all. See keepalive.go.
+	HeartbeatPeriod int `json:"heartbeatPeriod,omitempty"`
 }
 
 type GRPCSettings struct {
@@ -683,6 +690,7 @@ func Build(o Options) (*Config, error) {
 		})
 	}
 
+	applyKeepAlive(cfg, s.KeepAlive)
 	return cfg, nil
 }
 

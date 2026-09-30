@@ -262,6 +262,29 @@ func parse(v string) ([3]int, bool) {
 // be verified costs one small request rather than a router's worth of bandwidth
 // on a file that is then thrown away.
 func Fetch(ctx context.Context, rel *Release, dir string) (string, error) {
+	return FetchWith(ctx, rel, dir, Progress{})
+}
+
+// Progress receives what a download is doing, for an interface that wants to
+// show it. Either function may be nil.
+//
+// Stage is told "downloading" before the bundle is fetched and "verifying"
+// once it has arrived and is being checked. Bytes is told how much has been
+// written so far and how much there is in all; total is 0 when the server did
+// not say.
+type Progress struct {
+	Stage func(stage string)
+	Bytes func(done, total int64)
+}
+
+func (p Progress) stage(s string) {
+	if p.Stage != nil {
+		p.Stage(s)
+	}
+}
+
+// FetchWith is Fetch, reporting as it goes.
+func FetchWith(ctx context.Context, rel *Release, dir string, p Progress) (string, error) {
 	if !rel.Installable() {
 		if rel.Asset == "" {
 			return "", fault.Tagf("update.no_bundle", []any{Arch()},
@@ -287,11 +310,16 @@ func Fetch(ctx context.Context, rel *Release, dir string) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, rel.AssetName)
-	got, err := download(ctx, rel.Asset, path)
+	p.stage("downloading")
+	got, err := download(ctx, rel.Asset, path, rel.Size, p.Bytes)
 	if err != nil {
 		os.Remove(path)
 		return "", err
 	}
+	// The digest was computed as the file was written; comparing it is the
+	// check, and it is a separate step because a mismatch is the one outcome
+	// here that means somebody else's file arrived.
+	p.stage("verifying")
 	if !strings.EqualFold(got, want) {
 		os.Remove(path)
 		return "", fault.Tagf("update.checksum_mismatch", []any{rel.AssetName},
@@ -340,7 +368,8 @@ func sumFor(sums, name string) string {
 // download writes the body to path and returns its SHA-256, computed as it is
 // written rather than by reading the file back: a router does not have the
 // memory to hold the bundle, and reading it twice is a second pass over flash.
-func download(ctx context.Context, url, path string) (string, error) {
+func download(ctx context.Context, url, path string, sizeHint int64,
+	onBytes func(done, total int64)) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -365,13 +394,33 @@ func download(ctx context.Context, url, path string) (string, error) {
 	defer f.Close()
 
 	h := sha256.New()
+	total := resp.ContentLength
+	if total <= 0 {
+		total = sizeHint
+	}
+	count := &byteCounter{total: total, report: onBytes}
 	// 64 MB is far above any bundle we ship and far below what would fill a
 	// router's storage unnoticed.
-	if _, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, 64<<20)); err != nil {
+	if _, err := io.Copy(io.MultiWriter(f, h, count), io.LimitReader(resp.Body, 64<<20)); err != nil {
 		return "", fmt.Errorf("download interrupted: %w", err)
 	}
 	if err := f.Sync(); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// byteCounter reports how much has gone past it. It writes nowhere; it sits
+// beside the file and the digest in a MultiWriter and only counts.
+type byteCounter struct {
+	done, total int64
+	report      func(done, total int64)
+}
+
+func (c *byteCounter) Write(p []byte) (int, error) {
+	c.done += int64(len(p))
+	if c.report != nil {
+		c.report(c.done, c.total)
+	}
+	return len(p), nil
 }

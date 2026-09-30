@@ -100,10 +100,12 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/disconnect", s.disconnect)
 	mux.HandleFunc("POST /api/firewall/reapply", s.reapplyFirewall)
 	mux.HandleFunc("POST /api/wan/changed", s.wanChanged)
+	mux.HandleFunc("POST /api/config/reset", s.resetConfig)
 
 	mux.HandleFunc("GET /api/update", s.getUpdate)
 	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
 	mux.HandleFunc("POST /api/update/install", s.installUpdate)
+	mux.HandleFunc("GET /api/update/log", s.getUpdateLog)
 
 	mux.HandleFunc("GET /api/traffic", s.getTraffic)
 	mux.HandleFunc("GET /api/connections", s.getConnections)
@@ -977,6 +979,22 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.status())
 }
 
+// resetConfig is the factory reset. It answers with the configuration the
+// device now has, read back from the store, so the page that asked can show
+// the empty state it produced rather than assume it.
+func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request) {
+	if err := s.engine.FactoryReset(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	data, err := s.store.Load()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reset": true, "config": data})
+}
+
 // wanChanged is the hotplug hook's end of the line: an interface came up, and
 // the daemon decides for itself whether that matters. It answers immediately
 // either way, because a hotplug script that waits is a hotplug script that
@@ -1019,8 +1037,21 @@ func (s *Server) installUpdate(w http.ResponseWriter, r *http.Request) {
 	// it belongs to the engine, not to this request: the installer stops the
 	// service, which closes this connection, and a context tied to the request
 	// would cancel the work it had just started.
-	if err := s.engine.InstallUpdate(); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	// ?async=1 is the interface's form: start it and answer at once, and let
+	// the page ask for progress. Without it the call waits for the download,
+	// which is what a command line wants — an error it can print.
+	var err error
+	if r.URL.Query().Get("async") == "1" {
+		err = s.engine.StartUpdate()
+	} else {
+		err = s.engine.InstallUpdate()
+	}
+	if err != nil {
+		status := http.StatusBadRequest
+		if daemon.IsAlreadyInstalling(err) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -1028,6 +1059,13 @@ func (s *Server) installUpdate(w http.ResponseWriter, r *http.Request) {
 		"log":        "/tmp/xwrt-update.log",
 		"note": "the service restarts as part of this; the interface will " +
 			"lose contact with it for a few seconds",
+	})
+}
+
+func (s *Server) getUpdateLog(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"log":  daemon.UpdateLog(60),
+		"path": "/tmp/xwrt-update.log",
 	})
 }
 

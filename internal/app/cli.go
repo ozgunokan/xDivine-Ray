@@ -99,6 +99,20 @@ func RunCLI(argv []string) int {
 		err = post("/api/disconnect", nil)
 	case "reapply-fw":
 		err = post("/api/firewall/reapply", nil)
+	case "reset":
+		// Two words, like update install: the one that erases everything is not
+		// a keystroke away from anything else.
+		if !hasFlag(args, "-y") && !hasFlag(args, "--yes") {
+			fmt.Fprintln(os.Stderr, "This removes every server, group, rule and subscription,\n"+
+				"puts every setting back to its default, and disconnects now.\n"+
+				"If the tunnel is this device's only way out, the internet stops\n"+
+				"until a server is added again.\n\n"+
+				"Take a backup first:  xwrt backup > xwrt-backup.json\n"+
+				"Then, to go ahead:    xwrt reset -y")
+			err = fmt.Errorf("not reset: -y was not given")
+			break
+		}
+		err = post("/api/config/reset", nil)
 	case "wan-changed":
 		// Called by the interface hotplug hook, with the interface that came
 		// up. The daemon decides whether it matters; this end only carries the
@@ -576,6 +590,9 @@ func usage() {
                                  (defaults to the stored selection)
   xwrt disconnect                disconnect and remove all rules
   xwrt reapply-fw                reinstall capture rules after a firewall reload
+  xwrt reset -y                  back to a fresh install: every server, group,
+                                 rule and subscription removed, settings to
+                                 their defaults, disconnected now
   xwrt wan-changed [iface]       rebuild the connection if the upstream link
                                  came back on a different address or gateway
                                  (called by the interface hotplug hook)

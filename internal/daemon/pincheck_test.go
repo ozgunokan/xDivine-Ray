@@ -224,7 +224,7 @@ func lookChanged(changed bool) *pinLook {
 }
 
 func TestTheFindingIsAlwaysRecorded(t *testing.T) {
-	p := pinnedProfile("87.121.104.212", 443, "old")
+	p := pinnedProfile("198.51.100.20", 443, "old")
 	for _, changed := range []bool{true, false} {
 		out := pinOutcomeFor(p, lookChanged(changed))
 		if out.Detail == "" {
@@ -235,7 +235,7 @@ func TestTheFindingIsAlwaysRecorded(t *testing.T) {
 }
 
 func TestNothingIsAcceptedUnlessItChanged(t *testing.T) {
-	p := pinnedProfile("87.121.104.212", 443, "old")
+	p := pinnedProfile("198.51.100.20", 443, "old")
 	p.PinAuto = true
 	if pinOutcomeFor(p, lookChanged(false)).Accept {
 		t.Error("accepted a certificate that had not changed")
@@ -243,7 +243,7 @@ func TestNothingIsAcceptedUnlessItChanged(t *testing.T) {
 }
 
 func TestNothingIsAcceptedUnlessAskedFor(t *testing.T) {
-	p := pinnedProfile("87.121.104.212", 443, "old")
+	p := pinnedProfile("198.51.100.20", 443, "old")
 	if pinOutcomeFor(p, lookChanged(true)).Accept {
 		t.Error("accepted a changed certificate on a profile that never asked")
 	}
@@ -253,7 +253,7 @@ func TestNothingIsAcceptedUnlessAskedFor(t *testing.T) {
 // profile that sends a real SNI can have its certificate checked properly, and
 // accepting one unseen there turns off a check that works.
 func TestNothingIsAcceptedOnAProfileThatCouldVerifyProperly(t *testing.T) {
-	p := pinnedProfile("87.121.104.212", 443, "old")
+	p := pinnedProfile("198.51.100.20", 443, "old")
 	p.SNI = "vpn.example.com"
 	p.PinAuto = true
 
@@ -269,7 +269,7 @@ func TestNothingIsAcceptedOnAProfileThatCouldVerifyProperly(t *testing.T) {
 }
 
 func TestItIsAcceptedWhereAllThreeHold(t *testing.T) {
-	p := pinnedProfile("87.121.104.212", 443, "old")
+	p := pinnedProfile("198.51.100.20", 443, "old")
 	p.PinAuto = true
 	if !pinOutcomeFor(p, lookChanged(true)).Accept {
 		t.Error("refused on a profile that asked for it and has nothing to verify")
@@ -277,7 +277,7 @@ func TestItIsAcceptedWhereAllThreeHold(t *testing.T) {
 }
 
 func TestNoLookMeansNoOpinion(t *testing.T) {
-	p := pinnedProfile("87.121.104.212", 443, "old")
+	p := pinnedProfile("198.51.100.20", 443, "old")
 	p.PinAuto = true
 	out := pinOutcomeFor(p, nil)
 	if out.Accept || out.Detail != "" {
@@ -287,9 +287,9 @@ func TestNoLookMeansNoOpinion(t *testing.T) {
 
 var certpinResultStub = certpin.Result{
 	Pin:      "1111111111111111111111111111111111111111111111111111111111111111",
-	Endpoint: "87.121.104.212:443",
+	Endpoint: "198.51.100.20:443",
 	Chain: []certpin.CertInfo{{
-		Subject: "CN=87.121.104.212", Issuer: "CN=87.121.104.212",
+		Subject: "CN=198.51.100.20", Issuer: "CN=198.51.100.20",
 		NotBefore: "2026-09-27T22:00:00Z", NotAfter: "2027-09-27T22:00:00Z",
 	}},
 }

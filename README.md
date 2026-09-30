@@ -110,6 +110,17 @@ ARCH=mipsel    sh get.sh     # override the detection
 Afterwards, the web interface is under **VPN → xDivine-Ray** in LuCI, and
 `xwrt update install` does later upgrades from the same release page.
 
+From LuCI, **About → Install** does the same, in a window that shows each step
+as it happens: checking the release, the download with how far it has got,
+verifying the checksum, unpacking, installing. The step after that — the
+service being stopped and replaced — cannot be reported by the daemon being
+replaced, so the window reads it from the daemon going quiet and waits for it
+to answer again. On the new version, it fetches the interface files past the
+browser's cache and reloads the page onto them. On the old version, it says the
+installer put the previous one back and shows the installer's log. If the
+service has not answered after three minutes, it stops waiting and says where
+the log is.
+
 ### Building it yourself, no SDK
 
 ```sh
@@ -387,6 +398,34 @@ assumed, since the older builds spell it `read-write-timeout` and the current
 ones split it in two — and writing a name the binary does not know is a gamble
 whose stake is a tunnel that will not start.
 
+### Connections that have to look alive
+
+The idle timeouts above are on this device. The line has its own: the mobile
+operator's NAT and any DPI box in the path keep a table of connections and drop
+the ones they have not seen traffic on, silently and in both directions. A
+phone's push connection riding inside one of those is gone, and the phone finds
+out at its next heartbeat.
+
+So every connection to the server is made to carry something every thirty
+seconds (the `keepalive` setting). What that something can be depends on the
+transport:
+
+| Transport | What it gets | Why |
+|---|---|---|
+| WebSocket | a ping the server answers, and TCP keepalive | the core's `heartbeatPeriod` is 0 — off — by default |
+| TCP (TLS, REALITY), httpupgrade | TCP keepalive | a plain stream is the application's own bytes end to end; there is nowhere to put a ping |
+| gRPC | TCP keepalive only | a gRPC server closes a client that pings more often than its enforcement policy allows — five minutes by default — so a thirty-second gRPC ping could make it hang up every thirty seconds |
+| XHTTP | left alone | it sends HTTP/2 or HTTP/3 pings of its own by default, and may run over QUIC |
+
+A WebSocket ping is real data inside the encrypted stream, going both ways,
+and every box on the path sees it. A TCP keepalive probe is an empty segment;
+the core already sends one every 45 seconds, and some middleboxes count it as
+activity while others do not. Where both are available, both are used.
+
+The keys are the ones the core parses — checked by giving each a value of the
+wrong type and seeing the core refuse it, since a misspelt key is otherwise
+ignored without a word. `-1` turns all of it off.
+
 ### Errors that keep happening
 
 A lossy upstream makes the core fail the same way over and over. On a night's
@@ -457,6 +496,23 @@ An interface hotplug hook tells the daemon when a link comes up. The daemon
 compares the WAN device, address and gateway against what it built on: it does
 nothing when they match, waits when the link has come up without a gateway
 yet, and reconnects when they have really changed.
+
+### Back to a fresh install
+
+**Configuration as JSON → Reset to factory settings** (or `xwrt reset -y`)
+removes every server, group, rule and subscription, puts every setting back to
+its default, and disconnects. A test loads the configuration file the package
+ships and compares it field by field with what a reset writes, so "factory"
+means exactly what a fresh install has.
+
+It disconnects because a fresh install is not connected. On a line whose only
+way out is the tunnel, that means no internet until a server is added again —
+the window says so before asking, offers the backup that would undo it, and
+keeps the button dead until a box saying so is ticked. The page stays
+reachable from the LAN, and importing a share link needs no internet.
+
+**Discard edits**, on the same page, is a different thing: it puts the text box
+back to what is saved on the device, and saves nothing.
 
 ## Configuration
 

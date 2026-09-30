@@ -21,7 +21,7 @@ func tlsProfile(address, sni string) Profile {
 }
 
 func TestABareAddressHasNothingToVerify(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "")
+	p := tlsProfile("198.51.100.20", "")
 	if p.VerifiableName() != "" {
 		t.Errorf("VerifiableName = %q, want empty", p.VerifiableName())
 	}
@@ -44,7 +44,7 @@ func TestAnAddressWithANameIsVerifiable(t *testing.T) {
 // normal arrangement, and that connection's certificate is checked against the
 // name — so there is a real check to keep.
 func TestAnIPWithASNIIsStillVerifiable(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "vpn.example.com")
+	p := tlsProfile("198.51.100.20", "vpn.example.com")
 	if p.VerifiableName() != "vpn.example.com" {
 		t.Errorf("VerifiableName = %q; the SNI is what the far end answers for",
 			p.VerifiableName())
@@ -56,7 +56,7 @@ func TestAnIPWithASNIIsStillVerifiable(t *testing.T) {
 }
 
 func TestAnSNIThatIsAlsoAnIPVerifiesNothing(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "87.121.104.212")
+	p := tlsProfile("198.51.100.20", "198.51.100.20")
 	if p.VerifiableName() != "" {
 		t.Errorf("VerifiableName = %q, want empty", p.VerifiableName())
 	}
@@ -74,7 +74,7 @@ func TestIPv6CountsAsNoName(t *testing.T) {
 
 // Without tls there is no certificate at all, so there is nothing to accept.
 func TestARealityProfileIsNotOfferedTheOption(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "")
+	p := tlsProfile("198.51.100.20", "")
 	p.Security = "reality"
 	p.PublicKey = "abc"
 	if p.CanAutoPin() {
@@ -85,7 +85,7 @@ func TestARealityProfileIsNotOfferedTheOption(t *testing.T) {
 // --- and the rule is enforced, not merely advertised -------------------------
 
 func TestTurningItOnWhereItIsNotAllowedIsRefused(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "vpn.example.com")
+	p := tlsProfile("198.51.100.20", "vpn.example.com")
 	p.PinAuto = true
 
 	err := p.Validate()
@@ -103,7 +103,7 @@ func TestTurningItOnWhereItIsNotAllowedIsRefused(t *testing.T) {
 }
 
 func TestTurningItOnWhereItIsAllowedIsAccepted(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "")
+	p := tlsProfile("198.51.100.20", "")
 	p.PinAuto = true
 	if err := p.Validate(); err != nil {
 		t.Errorf("refused on a profile with nothing to verify: %v", err)
@@ -111,7 +111,7 @@ func TestTurningItOnWhereItIsAllowedIsAccepted(t *testing.T) {
 }
 
 func TestItCannotBeTurnedOnWithoutTLS(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "")
+	p := tlsProfile("198.51.100.20", "")
 	p.Security = "none"
 	p.PinAuto = true
 	if err := p.Validate(); err == nil {
@@ -123,7 +123,7 @@ func TestItCannotBeTurnedOnWithoutTLS(t *testing.T) {
 // that protects nothing is not worth having; a flag that turns itself on is
 // worse than no flag.
 func TestItIsOffUnlessAskedFor(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "")
+	p := tlsProfile("198.51.100.20", "")
 	if p.PinAuto {
 		t.Error("on by default")
 	}
@@ -144,7 +144,7 @@ func TestItIsOffUnlessAskedFor(t *testing.T) {
 // wrong, and wrong on the arrangement that is most common.
 
 func TestABorrowedNameIsOfferedOnceWeHaveLooked(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "cdn.whatsapp.net")
+	p := tlsProfile("198.51.100.20", "cdn.whatsapp.net")
 	p.PinnedCert = "aaaa"
 
 	// Before the certificate has been looked at, nothing distinguishes this
@@ -190,7 +190,7 @@ func TestAVerifiedNameStaysWithheld(t *testing.T) {
 // The mark means nothing without a pin: it is written by a fetch, and a profile
 // with no pin has had no fetch.
 func TestTheMarkAloneIsNotEnough(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "cdn.whatsapp.net")
+	p := tlsProfile("198.51.100.20", "cdn.whatsapp.net")
 	p.PinUnverifiable = true
 	if p.CanAutoPin() {
 		t.Error("offered on a profile that pins nothing")
@@ -200,7 +200,7 @@ func TestTheMarkAloneIsNotEnough(t *testing.T) {
 // Zero value is the careful answer: a profile pinned by an older version, which
 // has no value for this field at all, reads as verifiable and is refused.
 func TestAProfileFromBeforeThisFieldIsRefused(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "cdn.whatsapp.net")
+	p := tlsProfile("198.51.100.20", "cdn.whatsapp.net")
 	p.PinnedCert = "aaaa"
 	if p.CanAutoPin() {
 		t.Error("an old profile with no recorded check was treated as unverifiable")
@@ -210,7 +210,7 @@ func TestAProfileFromBeforeThisFieldIsRefused(t *testing.T) {
 // None of this changes the plain case: a bare address has no name at all and
 // never needed a certificate to be fetched to know it.
 func TestABareAddressStillNeedsNoLook(t *testing.T) {
-	p := tlsProfile("87.121.104.212", "")
+	p := tlsProfile("198.51.100.20", "")
 	if !p.CanAutoPin() {
 		t.Error("a bare address stopped being offered the option")
 	}

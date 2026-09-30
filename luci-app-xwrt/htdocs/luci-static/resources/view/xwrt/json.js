@@ -123,6 +123,12 @@ function backupName(config) {
 	return 'xwrt-backup-' + (v ? v + '-' : '') + stamp + '.json';
 }
 
+// io is where files leave the page, replaceable so a test can see what would
+// have been downloaded without a browser.
+var io = {
+	download: function(text, name) { return download(text, name); }
+};
+
 // download hands the document to the browser as a file.
 function download(text, name) {
 	var blob = new Blob([text], { type: 'application/json' });
@@ -134,6 +140,88 @@ function download(text, name) {
 	// Not immediately: Safari has been known to cancel a download whose object
 	// URL was revoked in the same tick.
 	window.setTimeout(function() { URL.revokeObjectURL(url); }, 30000);
+}
+
+// --- back to a fresh install -------------------------------------------
+//
+// The one button on this page that cannot be undone by pressing another, so it
+// is kept apart from the rest and it asks properly. The window says what goes,
+// in numbers read from the device rather than in general terms; it offers the
+// backup that would undo it before anything happens; and the button that does
+// it stays dead until a box saying "yes, all of it" is ticked.
+//
+// It disconnects, because a fresh install is not connected. On a line whose
+// only way out is the tunnel that means no internet until a server is added
+// again — which the window says in so many words, along with the fact that
+// adding one from a share link needs no internet at all.
+
+function count(list) {
+	return (list && list.length) || 0;
+}
+
+function resetWindow(view) {
+	return xwrt.config().then(function(c) {
+		c = c || {};
+		var backedUp = E('span', { 'style': 'margin-left:.6em;color:#2e7d32' });
+		var go = E('button', {
+			'class': 'cbi-button cbi-button-negative',
+			'disabled': 'disabled',
+			'click': ui.createHandlerFn(view, function() {
+				if (go.disabled)
+					return;
+				return xwrt.resetConfig().then(function(r) {
+					xwrt.checked(r);
+					ui.hideModal();
+					if (box() && r && r.config)
+						box().value = pretty(r.config);
+					dom.content(document.getElementById('xwrt-json-report'), []);
+					ui.addNotification(null, E('p',
+						_('Reset to factory settings. The tunnel is down; add a server to connect again.')), 'info');
+				}).catch(function(e) {
+					ui.addNotification(null, E('p', (e && e.message) || String(e)), 'error');
+				});
+			})
+		}, _('Reset everything'));
+
+		var agree = E('input', {
+			'type': 'checkbox',
+			'change': function(ev) {
+				go.disabled = !ev.target.checked;
+			}
+		});
+		go.disabled = true;
+
+		ui.showModal(_('Reset to factory settings'), [
+			E('p', {}, _('xDivine-Ray on this router goes back to the state it was installed in:')),
+			E('ul', { 'style': 'margin:.4em 0 .8em 1.2em' }, [
+				E('li', {}, _('%d server(s), %d group(s), %d rule(s) and %d subscription(s) are deleted')
+					.format(count(c.profiles), count(c.groups), count(c.rules), count(c.subscriptions))),
+				E('li', {}, _('every setting goes back to its default')),
+				E('li', {}, E('strong', {}, _('the tunnel is disconnected now')))
+			]),
+			E('div', { 'class': 'alert-message warning' },
+				_('If this router reaches the internet only through the tunnel, there is no internet until a server is added again. This page stays reachable from the local network, and adding a server from a share link does not need the internet.')),
+			E('div', { 'style': 'margin:.9em 0' }, [
+				E('button', {
+					'class': 'cbi-button cbi-button-action',
+					'click': function() {
+						io.download(pretty(c), backupName(c));
+						dom.content(backedUp, '\u2713 ' + _('downloaded'));
+					}
+				}, _('Download a backup first')),
+				backedUp
+			]),
+			E('label', { 'style': 'display:flex;gap:.5em;align-items:center;margin:.6em 0' }, [
+				agree,
+				E('span', {}, _('I understand: delete everything and disconnect'))
+			]),
+			E('div', { 'class': 'right', 'style': 'margin-top:1em' }, [
+				E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')),
+				' ',
+				go
+			])
+		]);
+	}).catch(rpcProblem);
 }
 
 return view.extend({
@@ -184,8 +272,12 @@ return view.extend({
 							return send(self, false);
 						})
 					}, _('Save')),
+					// Named for what it does, with the rest on hover. It used to
+					// be called "Reload from the device", which reads as
+					// "restore the device" — nearly the opposite.
 					E('button', {
 						'class': 'cbi-button cbi-button-neutral',
+						'title': _('Puts the box back to what is saved on the device. Nothing is saved or reset.'),
 						'click': ui.createHandlerFn(self, function() {
 							return xwrt.config().then(function(c) {
 								if (box())
@@ -193,7 +285,7 @@ return view.extend({
 								dom.content(document.getElementById('xwrt-json-report'), []);
 							}).catch(rpcProblem);
 						})
-					}, _('Reload from the device')),
+					}, _('Discard edits')),
 
 					// Straight from the device rather than from the box: what
 					// gets backed up should be what is stored, not what someone
@@ -202,7 +294,7 @@ return view.extend({
 						'class': 'cbi-button cbi-button-neutral',
 						'click': ui.createHandlerFn(self, function() {
 							return xwrt.config().then(function(c) {
-								download(pretty(c), backupName(c));
+								io.download(pretty(c), backupName(c));
 							}).catch(rpcProblem);
 						})
 					}, _('Download a backup')),
@@ -247,11 +339,28 @@ return view.extend({
 
 				E('div', { 'style': 'margin-top:.4em;opacity:.75;font-size:92%' },
 					_('A backup file is this document and nothing else, so it can be restored from here or with "xwrt restore". Loading a file only fills the box — press Check, then Save. It does not carry the firewall or anything else outside this app.'))
+			]),
+
+			// Apart from the buttons above, on purpose: those change the box,
+			// this one changes the device and cannot be taken back by the next
+			// button along.
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('Factory settings')),
+				E('div', { 'class': 'cbi-section-descr' },
+					_('Takes this app back to a fresh install: no servers, groups, rules or subscriptions, every setting at its default, disconnected.')),
+				E('button', {
+					'class': 'cbi-button cbi-button-negative',
+					'click': ui.createHandlerFn(self, function() { return resetWindow(self); })
+				}, _('Reset to factory settings'))
 			])
 		]);
 	},
 
 	handleSave: null,
 	handleSaveApply: null,
-	handleReset: null
+	handleReset: null,
+
+	// For the tests.
+	_io: io,
+	_resetWindow: resetWindow
 });

@@ -125,6 +125,48 @@ This device has no certificate store, so https fetches fail. Install one:
 Check that this device has a working internet connection."
 }
 
+# --- the banner --------------------------------------------------------------
+#
+# The DivineWRT crown. Colour only on a terminal that can show it: piped into a
+# file or a log, escape codes are noise, and NO_COLOR is the convention for
+# saying so on purpose. stdout is checked, not stdin — `wget ... | sh` has
+# stdin on the pipe and stdout still on the terminal.
+banner() {
+	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
+		c=$(printf '\033[1;36m'); w=$(printf '\033[1;97m'); d=$(printf '\033[2m'); r=$(printf '\033[0m')
+	else
+		c=; w=; d=; r=
+	fi
+	# The crown is in a quoted heredoc, so nothing in it is interpreted: it has
+	# backslashes, a backtick and a single quote in it, and each of those means
+	# something to the shell anywhere else.
+	i=0
+	printf '\n'
+	while IFS= read -r line; do
+		case $i in
+			4) text="${w}Divine${c}WRT${r}" ;;
+			5) text="${d}xDivine-Ray · OpenWrt Xray VPN${r}" ;;
+			6) text="${d}tek satırda kurulum${r}" ;;
+			*) text= ;;
+		esac
+		if [ -n "$text" ]; then
+			printf '%s%-34s%s   %s\n' "$c" "$line" "$r" "$text"
+		else
+			printf '%s%s%s\n' "$c" "$line" "$r"
+		fi
+		i=$((i + 1))
+	done <<'CROWN'
+                /\
+               /  \
+              /    \
+  _          /      \          _
+  \`-._     /  \  /  \     _.-'/
+   \   `-._/    \/    \_.-'   /
+    \_____/____________\_____/
+CROWN
+	printf '\n'
+}
+
 # --- go ----------------------------------------------------------------------
 
 # test/getsh.sh sources this file to exercise the decisions above without
@@ -132,6 +174,8 @@ Check that this device has a working internet connection."
 if [ "${GETSH_DRYRUN:-0}" = 1 ]; then
 	return 0 2>/dev/null || exit 0
 fi
+
+banner
 
 ARCH="${ARCH:-$(detect_arch)}"
 BUNDLE="xwrt-$ARCH.tar.gz"

@@ -63,6 +63,10 @@ var callReplaceRules = rpc.declare({
 var callUpdate = rpc.declare({ object: 'xwrt', method: 'update' });
 var callUpdateCheck = rpc.declare({ object: 'xwrt', method: 'update_check' });
 var callUpdateInstall = rpc.declare({ object: 'xwrt', method: 'update_install' });
+// What an install wrote, for when it did not end on the version it was going to.
+var callUpdateLog = rpc.declare({ object: 'xwrt', method: 'update_log' });
+// Back to a fresh install. Disconnects as part of it.
+var callResetConfig = rpc.declare({ object: 'xwrt', method: 'reset_config' });
 
 var callTraffic = rpc.declare({ object: 'xwrt', method: 'traffic' });
 var callConnections = rpc.declare({
@@ -284,6 +288,8 @@ return baseclass.extend({
 	update: callUpdate,
 	updateCheck: callUpdateCheck,
 	updateInstall: callUpdateInstall,
+	updateLog: callUpdateLog,
+	resetConfig: callResetConfig,
 	connect: callConnect,
 	groups: callGroups,
 	rules: callRules,

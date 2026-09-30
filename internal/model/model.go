@@ -698,10 +698,27 @@ type Settings struct {
 	// costs a socket and a small buffer; a household's worth of them is
 	// affordable even on the 128 MB floor this targets, and far cheaper than
 	// the alternative. 0 leaves the core's own default, which is 300 seconds.
-	ConnIdle int    `json:"conn_idle"`
-	XrayBin  string `json:"xray_bin"`
-	HevBin   string `json:"hev_bin"`
-	RunDir   string `json:"run_dir"`
+	ConnIdle int `json:"conn_idle"`
+
+	// KeepAlive is how often, in seconds, the tunnel's own connections to the
+	// server are made to carry something even when nothing is being sent.
+	//
+	// ConnIdle stops this device closing a quiet connection. It does nothing
+	// about everything between this device and the server — the operator's
+	// NAT, a DPI box, a CDN — each of which has an idle timeout of its own and
+	// removes a connection it has not seen traffic on, silently, in both
+	// directions. The phone behind it holds its push connection open and is
+	// not told; its next heartbeat is up to half an hour away.
+	//
+	// So every connection to the server is kept visibly alive: WebSocket
+	// connections send a ping the server answers, and every TCP socket gets
+	// keepalive probes at this interval. 0 means the default; a negative value
+	// turns it off and leaves the core's own behaviour.
+	KeepAlive int `json:"keepalive"`
+
+	XrayBin string `json:"xray_bin"`
+	HevBin  string `json:"hev_bin"`
+	RunDir  string `json:"run_dir"`
 
 	// TUN mode parameters.
 	TunName string `json:"tun_name"`
@@ -773,6 +790,7 @@ func Defaults() Settings {
 		// night, short enough that something genuinely abandoned is still
 		// cleaned up the same day.
 		ConnIdle:   14400,
+		KeepAlive:  30,
 		XrayBin:    "xray",
 		HevBin:     "hev-socks5-tunnel",
 		RunDir:     "/var/run/xwrt",
@@ -827,6 +845,7 @@ func (s *Settings) Normalize() {
 	if s.ConnIdle == 0 {
 		s.ConnIdle = d.ConnIdle
 	}
+	s.KeepAlive = normalizeKeepAlive(s.KeepAlive, d.KeepAlive)
 	if s.XrayBin == "" {
 		s.XrayBin = d.XrayBin
 	}
@@ -1111,4 +1130,29 @@ func PruneMembers(groups []Group, profiles []Profile) []Group {
 		groups[i].Members = kept
 	}
 	return groups
+}
+
+// The bounds on KeepAlive. Below ten seconds a ping is traffic for its own
+// sake — no middlebox anywhere forgets a connection that fast — and on a
+// metered line every connection pays for it. Above ten minutes it stops
+// protecting against the operators that time out soonest.
+const (
+	KeepAliveMin = 10
+	KeepAliveMax = 600
+)
+
+// normalizeKeepAlive keeps a negative value (off) as it is, turns 0 into the
+// default, and holds anything else inside the bounds.
+func normalizeKeepAlive(v, def int) int {
+	switch {
+	case v < 0:
+		return -1
+	case v == 0:
+		return def
+	case v < KeepAliveMin:
+		return KeepAliveMin
+	case v > KeepAliveMax:
+		return KeepAliveMax
+	}
+	return v
 }

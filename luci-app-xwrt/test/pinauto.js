@@ -36,7 +36,7 @@ function editor(profile) {
 
 function base(extra) {
 	var p = {
-		id: 'p1', name: 'divine', proto: 'vless', address: '87.121.104.212',
+		id: 'p1', name: 'divine', proto: 'vless', address: '198.51.100.20',
 		port: 443, network: 'ws', security: 'tls',
 		uuid: 'b831381d-6324-4d53-ad4f-8cda48b30811',
 		pinned_cert: 'aaaa000000000000000000000000000000000000000000000000000000000000'

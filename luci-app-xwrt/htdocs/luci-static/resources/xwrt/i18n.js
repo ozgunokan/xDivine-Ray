@@ -321,6 +321,70 @@ var TR = {
 		"Boşta bağlantı zaman aşımı (saniye)",
 	"How long a connection may carry nothing before it is closed. The default, 14400, is four hours. Phones keep one connection to their push service open for hours without sending anything; closing it is what makes notifications arrive late or not at all. It applies to the tunnel process as well as the core, whose own defaults are five minutes and would otherwise close such a connection first. UDP sessions are capped at ten minutes regardless, since nothing closes those and holding them costs memory. Lower it only if you know why.":
 		"Bir bağlantının kapatılmadan önce ne kadar süre hiçbir şey taşımadan durabileceği. Varsayılan 14400, yani dört saat. Telefonlar bildirim sunucusuna açtıkları tek bağlantıyı saatlerce hiçbir şey göndermeden açık tutar; o bağlantıyı kapatmak bildirimlerin geç gelmesine ya da hiç gelmemesine yol açar. Bu değer yalnız çekirdeğe değil, tünel sürecine de uygulanır; onun kendi varsayılanı beş dakikadır ve böyle bir bağlantıyı önce o kapatırdı. UDP oturumları her hâlükârda on dakikayla sınırlıdır: onları kapatan bir şey yok ve açık tutmak bellek yiyor. Ne yaptığını biliyorsan düşür.",
+	"Keep-alive interval (seconds)":
+		"Canlı tutma aralığı (saniye)",
+	"How often the tunnel's connections to the server are made to carry something while nothing is being sent. The operator's equipment forgets a connection it has not seen traffic on, without telling either end; a phone's push connection riding inside it is lost until the phone's next heartbeat. WebSocket connections send a ping the server answers, and every TCP connection gets keepalive probes. The default is 30. Allowed: 10 to 600. -1 turns it off.":
+		"Tünelin sunucuya giden bağlantılarının, hiçbir şey gönderilmezken ne sıklıkla bir şey taşıması gerektiği. Operatörün cihazları üzerinden trafik geçmeyen bir bağlantıyı iki tarafa da haber vermeden unutur; içinde taşınan telefonun bildirim bağlantısı, telefonun bir sonraki kalp atışına kadar kaybolur. WebSocket bağlantıları sunucunun cevapladığı bir ping gönderir, her TCP bağlantısına da canlı tutma paketleri gider. Varsayılan 30. İzin verilen: 10 ile 600 arası. -1 kapatır.",
+	"Show progress":
+		"İlerlemeyi göster",
+	"Updating to %s":
+		"%s sürümüne güncelleniyor",
+	"Checking the release":
+		"Sürüm denetleniyor",
+	"Downloading":
+		"İndiriliyor",
+	"Verifying the checksum":
+		"Sağlama toplamı doğrulanıyor",
+	"Unpacking":
+		"Paket açılıyor",
+	"Installing":
+		"Kuruluyor",
+	"Restarting the service":
+		"Servis yeniden başlatılıyor",
+	"Reloading the page":
+		"Sayfa yenileniyor",
+	"Close":
+		"Kapat",
+	"%s is installed. Reloading…":
+		"%s kuruldu. Sayfa yenileniyor…",
+	"The update failed.":
+		"Güncelleme başarısız oldu.",
+	"%s could not be started, so %s was put back. Nothing else was changed; the installer's own account is below.":
+		"%s başlatılamadı, bu yüzden %s geri yüklendi. Başka hiçbir şey değişmedi; kurulum programının kendi kaydı aşağıda.",
+	"The install did not start.":
+		"Kurulum başlamadı.",
+	"The service has not come back after three minutes. The installer writes its progress to %s — read it over SSH.":
+		"Servis üç dakika geçmesine rağmen geri gelmedi. Kurulum programı ilerlemesini %s dosyasına yazıyor — SSH ile bakın.",
+	"Discard edits":
+		"Düzenlemeleri geri al",
+	"Puts the box back to what is saved on the device. Nothing is saved or reset.":
+		"Kutuyu cihazda kayıtlı olan haline döndürür. Hiçbir şey kaydedilmez ya da sıfırlanmaz.",
+	"Factory settings":
+		"Fabrika ayarları",
+	"Takes this app back to a fresh install: no servers, groups, rules or subscriptions, every setting at its default, disconnected.":
+		"Bu uygulamayı ilk kurulum haline döndürür: sunucu, grup, kural ve abonelik kalmaz, her ayar varsayılanına döner, bağlantı kesilir.",
+	"Reset to factory settings":
+		"Fabrika ayarlarına döndür",
+	"xDivine-Ray on this router goes back to the state it was installed in:":
+		"Bu router'daki xDivine-Ray ilk kurulduğu hale döner:",
+	"%d server(s), %d group(s), %d rule(s) and %d subscription(s) are deleted":
+		"%d sunucu, %d grup, %d kural ve %d abonelik silinir",
+	"every setting goes back to its default":
+		"her ayar varsayılanına döner",
+	"the tunnel is disconnected now":
+		"tünel şimdi kapatılır",
+	"If this router reaches the internet only through the tunnel, there is no internet until a server is added again. This page stays reachable from the local network, and adding a server from a share link does not need the internet.":
+		"Bu router internete yalnızca tünel üzerinden çıkıyorsa, yeniden bir sunucu eklenene kadar internet olmaz. Bu sayfaya yerel ağdan girmeye devam edebilirsin; paylaşım linkinden sunucu eklemek internet gerektirmez.",
+	"Download a backup first":
+		"Önce yedek indir",
+	"downloaded":
+		"indirildi",
+	"I understand: delete everything and disconnect":
+		"Anladım: her şey silinsin ve bağlantı kesilsin",
+	"Reset everything":
+		"Her şeyi sıfırla",
+	"Reset to factory settings. The tunnel is down; add a server to connect again.":
+		"Fabrika ayarlarına dönüldü. Tünel kapalı; yeniden bağlanmak için bir sunucu ekle.",
 	"Certificate pinned":
 		"Sertifika sabitlendi",
 	"The certificate has changed":
@@ -617,8 +681,6 @@ var TR = {
 		"Bu belge sunucu kimlik bilgilerinizin tamam\u0131n\u0131 i\u00e7erir. Bir kopyas\u0131na, payla\u015f\u0131m linklerinin kendisine davrand\u0131\u011f\u0131n\u0131z gibi davran\u0131n.",
 	"Check":
 		"Denetle",
-	"Reload from the device":
-		"Cihazdakini getir",
 	"Check says whether the document would be accepted, without saving it. A section left out of the document is refused rather than obeyed \u2014 to empty one, give it an empty list.":
 		"Denetle, belgenin kabul edilip edilmeyece\u011fini kaydetmeden s\u00f6yler. Belgeden \u00e7\u0131kar\u0131lm\u0131\u015f bir b\u00f6l\u00fcm uygulanmaz, reddedilir \u2014 bir b\u00f6l\u00fcm\u00fc bo\u015faltmak i\u00e7in ona bo\u015f liste verin.",
 	"Kernel connection table: %d of %d (%d%%).":
@@ -950,8 +1012,6 @@ var TR = {
 		"%s sürümünü kur",
 	"Install %s now?\n\nThe tunnel goes down while the service restarts, and comes back by itself. If the new version cannot start, the previous one is put back automatically.":
 		"%s şimdi kurulsun mu?\n\nServis yeniden başlarken tünel düşer ve kendiliğinden geri gelir. Yeni sürüm başlayamazsa bir önceki otomatik olarak geri yüklenir.",
-	"Installing. This page will lose contact with the daemon for a moment; reload it in a minute.":
-		"Kuruluyor. Bu sayfa bir süreliğine daemon ile bağlantısını kaybedecek; bir dakika sonra yenileyin.",
 	"Installing %s. The service restarts as part of this, so this page will lose contact with it for a moment.":
 		"%s kuruluyor. Servis bu sırada yeniden başlıyor, bu yüzden sayfa bir süreliğine bağlantısını kaybedecek.",
 	"Progress is written to %s.":
