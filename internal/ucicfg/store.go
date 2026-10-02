@@ -111,6 +111,9 @@ func (s *Store) load() (*Data, error) {
 		st.APIPort = toInt(m.Get("api_port"), st.APIPort)
 		st.ConnIdle = toInt(m.Get("conn_idle"), st.ConnIdle)
 		st.KeepAlive = toInt(m.Get("keepalive"), st.KeepAlive)
+		if v := m.Get("sniff"); v != "" {
+			st.Sniff = model.SniffMode(v)
+		}
 		st.StatsPort = toInt(m.Get("stats_port"), st.StatsPort)
 		if v := m.Get("dns"); v != "" {
 			st.DNS = v
@@ -274,6 +277,7 @@ func (s *Store) save(d *Data) error {
 	main.Set("api_port", strconv.Itoa(st.APIPort))
 	main.Set("conn_idle", strconv.Itoa(st.ConnIdle))
 	main.Set("keepalive", strconv.Itoa(st.KeepAlive))
+	main.Set("sniff", string(st.Sniff))
 	main.Set("stats_port", strconv.Itoa(st.StatsPort))
 	main.Set("dns", st.DNS)
 	main.Set("dns_mode", string(st.DNSMode))

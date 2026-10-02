@@ -385,6 +385,16 @@ var TR = {
 		"Her şeyi sıfırla",
 	"Reset to factory settings. The tunnel is down; add a server to connect again.":
 		"Fabrika ayarlarına dönüldü. Tünel kapalı; yeniden bağlanmak için bir sunucu ekle.",
+	"Read the destination name (sniffing)":
+		"Hedef adını oku (sniffing)",
+	"The core can read the site name out of a connection's first packet, which is what lets a rule match a domain at all. The cost is that the connection is not made until the client sends something — so anything where the server speaks first never connects: mail servers, SSH, and game servers that send their handshake first. \"Automatic\" turns it on only when a rule needs a domain. Turn it off if a game or a mail client will not connect.":
+		"Çekirdek, bağlantının ilk paketinden site adını okuyabilir; bir kuralın alan adıyla eşleşmesini sağlayan tek şey budur. Bedeli şu: istemci bir şey gönderene kadar bağlantı kurulmaz — yani önce sunucunun konuştuğu her şey hiç bağlanamaz: posta sunucuları, SSH ve el sıkışmayı önce gönderen oyun sunucuları. \"Otomatik\", yalnızca bir kural alan adına ihtiyaç duyduğunda açar. Bir oyun ya da posta istemcisi bağlanamıyorsa kapat.",
+	"Automatic — only when a rule needs a domain":
+		"Otomatik — yalnızca bir kural alan adı istediğinde",
+	"Always on":
+		"Her zaman açık",
+	"Off — domain rules stop matching":
+		"Kapalı — alan adı kuralları eşleşmez",
 	"Certificate pinned":
 		"Sertifika sabitlendi",
 	"The certificate has changed":

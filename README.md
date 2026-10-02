@@ -398,6 +398,26 @@ assumed, since the older builds spell it `read-write-timeout` and the current
 ones split it in two — and writing a name the binary does not know is a gamble
 whose stake is a tunnel that will not start.
 
+### Connections where the server speaks first
+
+Sniffing reads the destination name out of a connection's first packet, which
+is the only way a rule about a domain can match: a firewall sees addresses. The
+price is in the core's own documentation — with sniffing on, "the client must
+send data first before the proxy server actually establishes a connection".
+
+So a protocol where the server speaks first does not connect at all. The core
+waits for the client, the client waits for the server's handshake, and the
+application gives up. SMTP is the documented example; the one that cost a week
+here was a game whose map servers send their handshake first. It would load,
+play, and drop to the login screen on a teleport, every time, while the same
+server through a client that does not sniff was faultless.
+
+The `sniff` setting is therefore `auto` by default: on only when a rule
+actually matches on a domain, off otherwise. With `routeOnly` the sniffed name
+is used for nothing else, so with no such rule it is pure cost. `on` forces it;
+`off` refuses it and domain rules stop matching. Rules that match on addresses,
+ports or clients are unaffected either way.
+
 ### Connections that have to look alive
 
 The idle timeouts above are on this device. The line has its own: the mobile

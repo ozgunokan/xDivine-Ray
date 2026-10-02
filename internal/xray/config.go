@@ -494,7 +494,7 @@ func Build(o Options) (*Config, error) {
 		Port:     s.SocksPort,
 		Protocol: "socks",
 		Settings: map[string]any{"auth": "noauth", "udp": true, "ip": "127.0.0.1"},
-		Sniffing: sniffingFor(s),
+		Sniffing: sniffingFor(s, o.Rules),
 	})
 	if s.HTTPPort > 0 {
 		cfg.Inbounds = append(cfg.Inbounds, Inbound{
@@ -502,7 +502,7 @@ func Build(o Options) (*Config, error) {
 			Listen:   listen,
 			Port:     s.HTTPPort,
 			Protocol: "http",
-			Sniffing: sniffingFor(s),
+			Sniffing: sniffingFor(s, o.Rules),
 		})
 	}
 
@@ -529,7 +529,7 @@ func Build(o Options) (*Config, error) {
 				"network":        network,
 				"followRedirect": true,
 			},
-			Sniffing: sniffingFor(s),
+			Sniffing: sniffingFor(s, o.Rules),
 		}
 		if s.Mode.CapturesTCPViaTProxy() || s.Mode.CapturesUDPViaTProxy() {
 			in.StreamSettings = &StreamSettings{Sockopt: &Sockopt{TProxy: "tproxy"}}
@@ -1138,12 +1138,44 @@ func serverAddress(p *model.Profile, resolve func(string) string) string {
 // resolver it likes, and on a censored network that may be a poisoned answer —
 // there, letting the far end resolve the name is the better trade, so the
 // override stays.
-func sniffingFor(s *model.Settings) *Sniffing {
+// And the cost of having it on at all, which went unnoticed for a long time
+// because nothing in a browser ever shows it. From the core's own
+// documentation: with sniffing on, "the client must send data first before the
+// proxy server actually establishes a connection". Every protocol where the
+// server speaks first — SMTP, SSH, a game server sending its handshake —
+// therefore does not connect: the core waits for the client, the client waits
+// for the server, and the application gives up. It looks like a dead server,
+// and it is this.
+//
+// So sniffing is on when something needs it and off when nothing does. What
+// needs it is a rule that matches on a domain; with routeOnly the sniffed name
+// is used for nothing else.
+func sniffingFor(s *model.Settings, rules []model.Rule) *Sniffing {
+	if !sniffWanted(s, rules) {
+		return &Sniffing{Enabled: false}
+	}
 	return &Sniffing{
 		Enabled:      true,
 		DestOverride: []string{"http", "tls", "quic"},
 		RouteOnly:    s.DNSMode != model.DNSOff,
 	}
+}
+
+// sniffWanted answers the question sniffingFor is built on.
+func sniffWanted(s *model.Settings, rules []model.Rule) bool {
+	switch s.Sniff {
+	case model.SniffOff:
+		return false
+	case model.SniffOn:
+		return true
+	}
+	// auto: only a rule that matches on a domain can use a sniffed name.
+	for _, r := range rules {
+		if r.Enabled && len(r.Domains) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // upstreamDNS decides how the core reaches the resolver it was given.

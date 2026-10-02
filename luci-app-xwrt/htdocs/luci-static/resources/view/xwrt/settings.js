@@ -267,6 +267,15 @@ return view.extend({
 		o.datatype = 'integer';
 		o.default = '30';
 
+		// The setting that stops a game connecting, and nothing on any screen
+		// would ever have said so.
+		o = s.taboption('advanced', form.ListValue, 'sniff', _('Read the destination name (sniffing)'),
+			_('The core can read the site name out of a connection\'s first packet, which is what lets a rule match a domain at all. The cost is that the connection is not made until the client sends something — so anything where the server speaks first never connects: mail servers, SSH, and game servers that send their handshake first. "Automatic" turns it on only when a rule needs a domain. Turn it off if a game or a mail client will not connect.'));
+		o.value('auto', _('Automatic — only when a rule needs a domain'));
+		o.value('on', _('Always on'));
+		o.value('off', _('Off — domain rules stop matching'));
+		o.default = 'auto';
+
 		o = s.taboption('advanced', form.Value, 'tun_name', _('TUN device name'),
 			_('If you change this, update the xwrt firewall zone to match, or forwarded traffic is dropped.'));
 		o.default = 'xwrt0';

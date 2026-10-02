@@ -716,6 +716,23 @@ type Settings struct {
 	// turns it off and leaves the core's own behaviour.
 	KeepAlive int `json:"keepalive"`
 
+	// Sniff decides whether the core reads the destination name out of the
+	// first packet of a connection.
+	//
+	// It is what makes a rule about a domain possible at all, because a
+	// firewall only ever sees addresses. The cost is in the core's own words:
+	// with sniffing on, "the client must send data first before the proxy
+	// server actually establishes a connection", which breaks every protocol
+	// where the server speaks first — SMTP, SSH, and the game servers that
+	// send their handshake before the client says anything. Those connections
+	// are never made at all: the core waits for the client, the client waits
+	// for the server.
+	//
+	//	auto  on when a rule needs it, off otherwise (the default)
+	//	on    always, even with no domain rules
+	//	off   never; domain rules stop matching
+	Sniff SniffMode `json:"sniff"`
+
 	XrayBin string `json:"xray_bin"`
 	HevBin  string `json:"hev_bin"`
 	RunDir  string `json:"run_dir"`
@@ -791,6 +808,7 @@ func Defaults() Settings {
 		// cleaned up the same day.
 		ConnIdle:   14400,
 		KeepAlive:  30,
+		Sniff:      SniffAuto,
 		XrayBin:    "xray",
 		HevBin:     "hev-socks5-tunnel",
 		RunDir:     "/var/run/xwrt",
@@ -846,6 +864,9 @@ func (s *Settings) Normalize() {
 		s.ConnIdle = d.ConnIdle
 	}
 	s.KeepAlive = normalizeKeepAlive(s.KeepAlive, d.KeepAlive)
+	if !s.Sniff.Valid() {
+		s.Sniff = d.Sniff
+	}
 	if s.XrayBin == "" {
 		s.XrayBin = d.XrayBin
 	}
@@ -1155,4 +1176,31 @@ func normalizeKeepAlive(v, def int) int {
 		return KeepAliveMax
 	}
 	return v
+}
+
+// SniffMode says when the core should read the destination name out of a
+// connection's first packet.
+type SniffMode string
+
+const (
+	// SniffAuto turns sniffing on only when something needs it: a rule that
+	// matches on a domain. Nothing else in this project uses the sniffed name —
+	// the destination is left alone (routeOnly) — so with no such rule,
+	// sniffing is pure cost, and the cost is that server-first protocols do not
+	// connect at all.
+	SniffAuto SniffMode = "auto"
+	// SniffOn is always on, for a configuration whose rules this cannot see:
+	// one driven from outside, or a rule added later in a session.
+	SniffOn SniffMode = "on"
+	// SniffOff is never on. Domain rules stop matching; address rules and
+	// everything else are unaffected.
+	SniffOff SniffMode = "off"
+)
+
+func (m SniffMode) Valid() bool {
+	switch m {
+	case SniffAuto, SniffOn, SniffOff:
+		return true
+	}
+	return false
 }

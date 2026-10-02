@@ -365,18 +365,26 @@ func hasIP(c *Config, want string) bool {
 // Sniffing decides whether the far end resolves the name a second time, which
 // is worth a round trip on every new connection — so the rule behind it is
 // pinned down here rather than left to whoever edits the inbound next.
+//
+// A domain rule is given, because that is what turns sniffing on at all: see
+// sniffWanted. Without one there is nothing to sniff for and the inbounds do
+// not sniff.
 func TestSniffingResolvesTheNameOnlyOnce(t *testing.T) {
 	p := model.Profile{
 		Proto: model.ProtoVLESS, Address: "a.example.com", Port: 443,
 		UUID: "b831381d-6324-4d53-ad4f-8cda48b30811", Network: "tcp",
 	}
+	needsSniffing := []model.Rule{{
+		ID: "r1", Name: "kural", Enabled: true, Action: model.ActionDirect,
+		Domains: []string{"fast.com"},
+	}}
 
 	// With a resolver of our own in the path, the address the client used came
 	// from us, so it is passed through and the domain is kept for routing.
 	for _, dns := range []model.DNSMode{model.DNSDnsmasq, model.DNSRedirect} {
 		s := model.Defaults()
 		s.DNSMode = dns
-		cfg, err := Build(Options{Profile: &p, Settings: &s})
+		cfg, err := Build(Options{Profile: &p, Settings: &s, Rules: needsSniffing})
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
@@ -399,7 +407,7 @@ func TestSniffingResolvesTheNameOnlyOnce(t *testing.T) {
 	// given a poisoned answer, so the far end resolving the name is safer.
 	s := model.Defaults()
 	s.DNSMode = model.DNSOff
-	cfg, err := Build(Options{Profile: &p, Settings: &s})
+	cfg, err := Build(Options{Profile: &p, Settings: &s, Rules: needsSniffing})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
