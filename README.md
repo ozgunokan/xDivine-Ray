@@ -185,10 +185,66 @@ xwrt set mode=mixed           # redirect | mixed | tproxy | tun
 xwrt set proxy_router=true    # also proxy traffic the router itself sends
 ```
 
+`proxy_router` is about the router's general traffic — DNS it looks up for
+itself, packages it installs, anything else it originates. It does not govern
+this daemon's own update checks and downloads: those follow the tunnel without
+being asked to, through the core's SOCKS inbound while it is connected and
+straight out the line while it is not. The two were the same question for a
+while, which meant that on a default installation the update check was the one
+request on the device still going out over the line the device was installed to
+work around.
+
 `logs` and `errors` print text, since they are read by people; everything else
 prints JSON, which is also how the LuCI app talks to it: the rpcd
 plugin at `/usr/libexec/rpcd/xwrt` is two lines of shell delegating to this
 binary.
+
+### helloXdivine, the fingerprint with no disguise
+
+The TLS fingerprint field offers the ten names every client offers — `chrome`,
+`firefox`, `safari`, `ios`, `android`, `edge`, `360`, `qq`, `random`,
+`randomized` — and one more. The core keeps its fingerprints in three tables,
+and the third, which its own source calls golang, randomized, auto and
+fingerprints that are too old, contains `hellogolang`: Go's own `crypto/tls`
+ClientHello, the handshake the core would send if uTLS were not involved. It is
+the only entry in all three tables that imitates nothing, it works, and no
+interface offers it. Here it is called `helloXdivine` and translated on the way
+to the core.
+
+It is there for speed, on exactly the processors this runs on. A ClientHello
+carries the client's cipher suites in preference order and the server takes the
+first one it shares. Go's `crypto/tls` builds that order from what the CPU can
+do — AES-GCM first with hardware AES, ChaCha20-Poly1305 first without it, two
+orderings in the standard library picked by one boolean. uTLS discards that by
+design, because its job is to send the list a browser sends, and a browser's
+list is written for machines where AES is free: AES-128-GCM, AES-256-GCM, then
+ChaCha20.
+
+On a router with no AES instructions — most MIPS, plenty of ARM — every browser
+fingerprint therefore talks the server into AES-GCM, and the device does AES in
+software for every byte of every connection. ChaCha20 was designed for that CPU.
+Choosing `helloXdivine` hands the ordering back to Go, the server picks ChaCha20,
+and throughput roughly doubles.
+
+Whether this device is in that position is on the Status page, as **Hardware
+AES**. It is not read out of `/proc/cpuinfo`, which spells the answer
+differently on every architecture and where a word this code did not know to
+look for is indistinguishable from a feature the CPU lacks. Go is asked
+directly instead, by making it choose: a TLS 1.3 handshake is run between two
+halves of this process over an in-memory pipe with `crypto/tls`'s own defaults
+on both sides, and whichever suite comes out is the one Go's preference order
+put first. That is the same decision the core's own Go build makes on the same
+processor — the fact itself rather than a proxy for it. When the answer is no,
+the row says what the fingerprint is worth here; when it is yes, it says
+nothing further, because then changing it changes nothing.
+
+It is also the one honest control case for diagnosis: every other option is a
+different disguise and none of them is "no disguise", so a connection that fails
+on every browser fingerprint and succeeds on this one is being refused for its
+uTLS rather than for anything else about this device. What it is not is a better
+disguise — a Go handshake is uncommon on a home line and easier to pick out of
+traffic than a Chrome one. Choose it for what the CPU can do, not for what an
+observer can see.
 
 ### Servers that skipped certificate verification
 

@@ -25,12 +25,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"xwrt/internal/fault"
@@ -97,10 +99,55 @@ func (r *Release) Installable() bool {
 	return r != nil && r.Asset != "" && r.Checksums != ""
 }
 
+// route is how every request in this package reaches the network. It is read at
+// dial time rather than captured in a transport, because what it should be
+// changes while the daemon runs: the tunnel comes up and goes down, and an
+// update started a minute after a connect must not still be using the route
+// that was correct a minute before it.
+//
+// Nil means the ordinary one. See socks.go for why there is a choice at all.
+var route struct {
+	mu   sync.RWMutex
+	dial func(ctx context.Context, network, addr string) (net.Conn, error)
+}
+
+// Route sets the dial function this package uses, or restores the ordinary one
+// when given nil.
+func Route(dial func(ctx context.Context, network, addr string) (net.Conn, error)) {
+	route.mu.Lock()
+	route.dial = dial
+	route.mu.Unlock()
+}
+
+func dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	route.mu.RLock()
+	via := route.dial
+	route.mu.RUnlock()
+
+	if via != nil {
+		return via(ctx, network, addr)
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, network, addr)
+}
+
+// transport is shared by both clients below so that neither can be given a
+// route the other does not have. Its settings are the standard ones; only the
+// dial is this package's own.
+func transport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = dial
+	// Proxy comes from the environment by default, which on a router is empty
+	// but on a developer's machine is not — and an HTTP proxy would quietly
+	// take precedence over the route chosen above.
+	t.Proxy = nil
+	return t
+}
+
 // client is deliberately modest. Ten seconds to find out whether a release
 // exists is already generous on a link that is working, and a long timeout on
 // a link that is not just means the interface waits.
-var client = &http.Client{Timeout: 20 * time.Second}
+var client = &http.Client{Timeout: 20 * time.Second, Transport: transport()}
 
 // checksumName is the file a release must carry for its bundles to be
 // installable. release.sh writes it.
@@ -377,7 +424,7 @@ func download(ctx context.Context, url, path string, sizeHint int64,
 	req.Header.Set("User-Agent", "xwrt-updater")
 	// Downloading a bundle over a slow link is a different proposition from
 	// asking whether one exists.
-	dl := &http.Client{Timeout: 10 * time.Minute}
+	dl := &http.Client{Timeout: 10 * time.Minute, Transport: transport()}
 	resp, err := dl.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("download failed: %w", err)

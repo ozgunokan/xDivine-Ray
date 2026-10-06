@@ -847,6 +847,20 @@ var TR = {
 		"Bu cihazın ağ yapısını çalışma anında algılayan VPN yöneticisi.",
 	"Connection":
 		"Bağlantı",
+	"Hardware AES":
+		"Donanımsal AES",
+	"yes":
+		"var",
+	"no":
+		"yok",
+	"The helloXdivine fingerprint can roughly double throughput on this processor, because it lets the server pick ChaCha20 instead of AES-GCM. Set it per server under Servers.":
+		"helloXdivine parmak izi bu işlemcide hızı yaklaşık iki katına çıkarabilir, çünkü sunucunun AES-GCM yerine ChaCha20 seçmesini sağlar. Sunucular sayfasından her sunucu için ayrı ayarlanır.",
+	"This device's own firewall is not loaded":
+		"Bu cihazın kendi güvenlik duvarı yüklü değil",
+	"There is no NAT, so nothing behind this router can reach the internet except through the tunnel. The router itself is unaffected, which is why everything looks normal until the tunnel is switched off.":
+		"NAT yok, bu yüzden bu yönlendiricinin arkasındaki hiçbir cihaz tünel dışından internete çıkamaz. Yönlendiricinin kendisi etkilenmez; her şeyin normal görünmesinin ve sorunun ancak tünel kapatılınca ortaya çıkmasının nedeni budur.",
+	"Check it over SSH with: fw4 check — then, once it reports nothing, reload it with: /etc/init.d/firewall restart":
+		"SSH ile şu komutla kontrol edin: fw4 check — hiçbir şey yazmadığında şununla yeniden yükleyin: /etc/init.d/firewall restart",
 	"Repeated errors":
 		"Tekrarlayan hatalar",
 	"Failures that arrived in a rush — ten of the same one within minutes, which is what a link that has gone looks like. The odd failure here and there is retried straight away and is normal on any line.":
@@ -936,6 +950,8 @@ var TR = {
 		"Hiçbiri",
 	"h3 belongs to QUIC and is dropped on any other transport.":
 		"h3, QUIC'e aittir; başka bir taşımada listeden çıkarılır.",
+	"helloXdivine is for processors with no AES acceleration: it lets the server pick ChaCha20 instead of AES-GCM, which can double throughput. It does not disguise the handshake, so choose it for speed rather than for hiding.":
+		"helloXdivine, AES hızlandırması olmayan işlemciler için: sunucunun AES-GCM yerine ChaCha20 seçmesini sağlar, bu da hızı iki katına çıkarabilir. El sıkışmayı gizlemez; yani hız için seçilir, gizlenmek için değil.",
 	"REALITY public key":
 		"REALITY genel anahtarı",
 	"REALITY short ID":

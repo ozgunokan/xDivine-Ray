@@ -41,8 +41,27 @@ PKG_MAINTAINER:=Özgün Okan
 
 PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
-# MIPS16 and Go do not mix.
+# MIPS16 and Go do not mix, and the opt-out is spelled two different ways.
+#
+# Go's runtime ships hand-written MIPS assembly that the assembler will not
+# accept in MIPS16 mode. Building for a MIPS target with it on fails inside
+# runtime/cgo, in a file nothing here wrote, with a wall of lines like:
+#
+#   gcc_mipsx.S:27: Error: invalid operands `sw $18,12($29)'
+#   gcc_mipsx.S:46: Error: invalid operands `jalr $20'
+#
+# which names neither MIPS16 nor this package and reads like a broken
+# toolchain. It is not: it is one flag.
+#
+# Both spellings are here because OpenWrt renamed it. PKG_USE_MIPS16 is what
+# 21.02 and 22.03 read; 24.10 replaced it with PKG_BUILD_FLAGS and ignores the
+# old name entirely, which is why a build that worked on 22.03 fails on 24.10
+# with nothing in between having changed. Whichever buildroot reads this, one
+# of the two lines means something to it and the other is an unused variable.
+#
+# Found on a Zyxel WSM20 (mipsel_24kc) against OpenWrt 24.10.8.
 PKG_USE_MIPS16:=0
+PKG_BUILD_FLAGS:=no-mips16
 
 GO_PKG:=xwrt
 GO_PKG_BUILD_PKG:=xwrt/cmd/...

@@ -64,6 +64,14 @@ type Env struct {
 	StorageTotalMB int `json:"storage_total_mb"`
 	StorageFreeMB  int `json:"storage_free_mb"`
 
+	// CryptoAccel is whether this processor does AES in hardware: "yes", "no",
+	// or empty when it could not be determined. It is here for one reason —
+	// it decides which TLS fingerprint is the fast one on this device, and the
+	// gap is roughly a factor of two on a processor that has no AES
+	// instructions. See aes.go, which explains both the why and why it is not
+	// read out of /proc/cpuinfo.
+	CryptoAccel string `json:"crypto_accel,omitempty"`
+
 	DetectedAt time.Time `json:"detected_at"`
 }
 
@@ -212,6 +220,7 @@ func Detect(ov Overrides) *Env {
 	e.detectFirewall()
 	e.MemTotalMB = memTotalMB()
 	e.StorageTotalMB, e.StorageFreeMB = storageMB()
+	e.CryptoAccel = AESAccel()
 	return e
 }
 

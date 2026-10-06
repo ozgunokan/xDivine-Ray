@@ -112,6 +112,58 @@ for dep in xray-core ip-full kmod-tun hev-socks5-tunnel kmod-nft-tproxy; do
 done
 [ "$fail" = 0 ] && ok "the core, ip-full, both tunnel pieces and tproxy are dependencies"
 
+# --- MIPS16 is off, in both spellings ------------------------------------
+#
+# Go's runtime ships MIPS assembly the assembler rejects in MIPS16 mode, so a
+# MIPS build with it on dies inside runtime/cgo with a page of "invalid
+# operands" about a file nothing here wrote. It names neither MIPS16 nor this
+# package, which is what makes it expensive: it reads like a broken toolchain.
+#
+# OpenWrt renamed the opt-out — PKG_USE_MIPS16 on 21.02 and 22.03,
+# PKG_BUILD_FLAGS on 24.10, which ignores the old name. Carrying only one of
+# them means the package builds on one generation of buildroot and fails on the
+# other, on MIPS devices only, which nobody testing on ARM would ever see.
+# It happened: a Zyxel WSM20 against OpenWrt 24.10.8.
+mips16=0
+grep -q '^PKG_USE_MIPS16:=0' "$MK" || {
+	bad "PKG_USE_MIPS16:=0 is missing, so a MIPS build on 21.02 or 22.03 will" \
+		"fail inside runtime/cgo with errors that name neither MIPS16 nor xwrt"
+	mips16=1
+}
+grep -q '^PKG_BUILD_FLAGS:=.*no-mips16' "$MK" || {
+	bad "PKG_BUILD_FLAGS:=no-mips16 is missing, so a MIPS build on 24.10 or" \
+		"newer will fail the same way: it no longer reads PKG_USE_MIPS16"
+	mips16=1
+}
+[ "$mips16" = 0 ] && ok "MIPS16 is off for both generations of buildroot"
+
+# --- helloXdivine is spelled the same in both places ----------------------
+#
+# The name is this project's; the core knows it as "hellogolang" and nothing
+# else. So the interface offers one spelling and the config builder translates
+# that spelling, and if the two ever disagree the result is not an error: the
+# core is handed a fingerprint it has never heard of and quietly uses its own
+# default. The connection works, the dropdown says what was chosen, and nothing
+# anywhere says the choice was discarded.
+ui_fp=$(sed -n "s/.*'randomized', '\([^']*\)'.*/\1/p" \
+	luci-app-xwrt/htdocs/luci-static/resources/view/xwrt/profiles.js | head -1)
+go_fp=$(sed -n 's/^const FingerprintXDivine = "\(.*\)"$/\1/p' \
+	internal/xray/fingerprint.go)
+if [ -z "$ui_fp" ] || [ -z "$go_fp" ]; then
+	bad "the extra fingerprint could not be found in both places" \
+		"(interface: '${ui_fp:-}', daemon: '${go_fp:-}')"
+elif [ "$(printf %s "$ui_fp" | tr 'A-Z' 'a-z')" != \
+      "$(printf %s "$go_fp" | tr 'A-Z' 'a-z')" ]; then
+	bad "the interface offers '$ui_fp' but the daemon translates '$go_fp'," \
+		"so choosing it would hand the core a name it does not know and the" \
+		"core would silently use its default fingerprint instead"
+else
+	ok "the interface's '$ui_fp' is the name the daemon translates"
+fi
+grep -q '^const coreFingerprintName = "hellogolang"$' internal/xray/fingerprint.go ||
+	bad "the daemon no longer translates to hellogolang, which is the only name" \
+		"the core actually has for this fingerprint"
+
 # --- one repository, named once ------------------------------------------
 #
 # The update source appears in three places: the daemon's default, the hint

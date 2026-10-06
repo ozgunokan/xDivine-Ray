@@ -951,7 +951,7 @@ func buildStream(p *model.Profile, mark int, caps Capabilities) (*StreamSettings
 		ss.Security = "tls"
 		tls := &TLSSettings{
 			ServerName:  orDefault(p.SNI, p.Host, p.Address),
-			Fingerprint: p.Fingerprint,
+			Fingerprint: coreFingerprint(p.Fingerprint),
 			ALPN:        p.ALPNList(),
 		}
 		// Pinning is the modern replacement for skipping verification, and it
@@ -987,7 +987,7 @@ func buildStream(p *model.Profile, mark int, caps Capabilities) (*StreamSettings
 		ss.Security = "reality"
 		ss.RealitySettings = &RealitySettings{
 			ServerName:  orDefault(p.SNI, p.Host),
-			Fingerprint: orDefault(p.Fingerprint, "chrome"),
+			Fingerprint: coreFingerprint(orDefault(p.Fingerprint, "chrome")),
 			PublicKey:   p.PublicKey,
 			ShortID:     p.ShortID,
 			SpiderX:     p.SpiderX,

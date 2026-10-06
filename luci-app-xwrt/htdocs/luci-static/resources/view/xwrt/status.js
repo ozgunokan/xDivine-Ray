@@ -50,6 +50,33 @@ function spec(valueMB, text) {
 		text + ' — ' + _('below the %d MB this version targets').format(MIN_SPEC_MB));
 }
 
+// cryptoAccelCell says whether this processor does AES in hardware, and what
+// follows from it.
+//
+// It is the one fact that decides which TLS fingerprint is fast here. A browser
+// fingerprint offers AES-GCM first, because that is what browsers do; on a
+// processor with no AES instructions the server then takes it and the device
+// does AES in software for every byte, while ChaCha20 — which was designed for
+// that processor — sits unused at the bottom of the list. The undisguised
+// fingerprint hands the ordering back and roughly doubles the throughput.
+//
+// Nobody knows this about their router offhand, which is why the daemon works
+// it out and why the answer carries its consequence rather than just a word. No
+// red: a processor without AES instructions is not a fault, and a status page
+// that colours a fact like a failure teaches people to ignore its colours.
+function cryptoAccelCell(env) {
+	if (!env || !env.crypto_accel)
+		return '-';
+	if (env.crypto_accel === 'yes')
+		return E('span', { 'style': 'color:#2e7d32' }, '✓ ' + _('yes'));
+
+	return E('span', {}, [
+		E('span', {}, _('no')),
+		E('div', { 'style': 'opacity:.7;font-size:90%;margin-top:.2em' },
+			_('The helloXdivine fingerprint can roughly double throughput on this processor, because it lets the server pick ChaCha20 instead of AES-GCM. Set it per server under Servers.'))
+	]);
+}
+
 // targetCell names what the daemon is connected to, and for a group says how
 // it is choosing between members — the difference between a group that fails
 // over and one that does not is worth seeing at a glance.
@@ -192,6 +219,44 @@ function failureBanner(failure) {
 		E('span', { 'style': 'color:#9e9e9e;font-size:90%' },
 			xwrt.localDateTime(failure.time))
 	]));
+
+	return E('div', { 'class': 'alert-message warning' }, parts);
+}
+
+// systemFirewallBanner warns that the router's own firewall is not loaded.
+//
+// Not this daemon's rules — OpenWrt's, the ones that carry the masquerade. It
+// is here rather than only in the log because of how the fault presents itself:
+// while the tunnel is up nothing consults the masquerade, so everything works.
+// Switch the tunnel off and every client loses the internet at once, while the
+// router itself still pings, still resolves names, and still has a
+// configuration that says it masquerades. Every check a person knows to run
+// passes. This line is the one that does not.
+//
+// Not dismissible, unlike a failed connect: that is an event that has passed,
+// this is a condition that is true right now, and it stops being shown the
+// moment it stops being true.
+function systemFirewallBanner(status) {
+	if (!status || !status.system_firewall_down)
+		return [];
+
+	var parts = [
+		E('div', {}, E('strong', {},
+			_('This device\'s own firewall is not loaded'))),
+		E('div', { 'style': 'margin-top:.3em' },
+			_('There is no NAT, so nothing behind this router can reach the internet except through the tunnel. The router itself is unaffected, which is why everything looks normal until the tunnel is switched off.'))
+	];
+
+	// The firewall's own words, untranslated and in a monospaced block: this is
+	// the text somebody will paste into a search box or send to whoever helps
+	// them, and it usually names the one file that has to be fixed.
+	if (status.system_firewall_reason)
+		parts.push(E('pre', {
+			'style': 'margin:.5em 0 0;white-space:pre-wrap;word-break:break-word;font-size:90%'
+		}, status.system_firewall_reason));
+
+	parts.push(E('div', { 'style': 'margin-top:.5em' },
+		_('Check it over SSH with: fw4 check — then, once it reports nothing, reload it with: /etc/init.d/firewall restart')));
 
 	return E('div', { 'class': 'alert-message warning' }, parts);
 }
@@ -530,6 +595,10 @@ return view.extend({
 			row(_('WAN device'), env.wan_device || _('not detected')),
 			row(_('WAN gateway'), env.wan_gateway || '-'),
 			row(_('Firewall'), env.firewall || '-'),
+			// Not a network fact, but it belongs in the table that answers
+			// "what did the daemon find on this box", and it is the only place
+			// anybody would look for it.
+			row(_('Hardware AES'), cryptoAccelCell(env)),
 			// No TPROXY row here. This table answers "what did the daemon find
 			// on this box" — devices, networks, the gateway — and whether the
 			// kernel has a module is a fact about a capture mode nobody on this
@@ -551,7 +620,13 @@ return view.extend({
 				// which version they are on.
 				status.update_available
 					? E('a', {
-						'href': L.url('admin', 'vpn', 'xwrt', 'about'),
+						// 'xdivine-ray', not 'xwrt': that is the menu path, and
+						// this link spent several releases pointing at a page
+						// that does not exist. It is the only thing in the
+						// interface that tells anybody an update is out, so a
+						// 404 here is an update nobody installs. test/ui.sh
+						// now checks every link against the menu.
+						'href': L.url('admin', 'vpn', 'xdivine-ray', 'about'),
 						'style': 'margin-left:.6em'
 					}, _('%s is available').format(status.update_version || ''))
 					: ''
@@ -559,6 +634,7 @@ return view.extend({
 		]));
 
 		var errorBox = E('div', { 'id': 'xwrt-error' }, failureBanner(status.last_error));
+		var fwBox = E('div', { 'id': 'xwrt-sysfw' }, systemFirewallBanner(status));
 
 		poll.add(function() {
 			return xwrt.status().then(function(s) {
@@ -577,6 +653,8 @@ return view.extend({
 					xwrt.formatBytes(st.downlink) + ' (' + xwrt.formatRate(st.downlink_rate) + ')');
 				dom.content(document.getElementById('xwrt-error'),
 					failureBanner(s.last_error));
+				dom.content(document.getElementById('xwrt-sysfw'),
+					systemFirewallBanner(s));
 				dom.content(document.getElementById('xwrt-faults'), faultBox(s));
 				redrawActions(s);
 			});
@@ -588,6 +666,10 @@ return view.extend({
 			E('div', { 'class': 'cbi-map-descr' },
 				_('A VPN manager that works out this device\'s network layout while it runs.')),
 
+			// Above the failed-connect banner: a router with no NAT explains
+			// more of what somebody is looking at than whatever the last
+			// connect attempt did.
+			fwBox,
 			errorBox,
 
 			E('div', { 'class': 'cbi-section' }, [

@@ -51,10 +51,19 @@ var FIELDS = [
 	  multi: [ 'h2', 'http/1.1', 'h3' ],
 	  hint: function() { return _('h3 belongs to QUIC and is dropped on any other transport.'); } },
 	// The uTLS fingerprint: what the handshake is made to look like.
+	//
+	// helloXdivine is last because it is not one of the disguises. It is the
+	// core's own undocumented "hellogolang", the handshake with no imitation in
+	// it, and it is here for speed: a browser fingerprint offers AES-GCM first
+	// because that is what browsers do, which on a CPU with no AES instructions
+	// means software AES for every byte. Go's own ordering offers ChaCha20
+	// first on such a CPU, and the throughput roughly doubles. The hint leads
+	// with that, and still says the thing it is not — a better disguise.
 	{ key: 'fingerprint',  label: function() { return _('TLS fingerprint (uTLS)'); },
 	  securities: [ 'tls', 'reality' ], empty: true,
 	  options: [ '', 'chrome', 'firefox', 'safari', 'ios', 'android', 'edge',
-		'360', 'qq', 'random', 'randomized' ] },
+		'360', 'qq', 'random', 'randomized', 'helloXdivine' ],
+	  hint: function() { return _('helloXdivine is for processors with no AES acceleration: it lets the server pick ChaCha20 instead of AES-GCM, which can double throughput. It does not disguise the handshake, so choose it for speed rather than for hiding.'); } },
 	{ key: 'public_key',   label: function() { return _('REALITY public key'); }, securities: [ 'reality' ] },
 	{ key: 'short_id',     label: function() { return _('REALITY short ID'); }, securities: [ 'reality' ] },
 	{ key: 'spider_x',     label: function() { return 'SpiderX'; }, securities: [ 'reality' ] },

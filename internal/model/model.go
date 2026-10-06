@@ -1036,6 +1036,23 @@ type Status struct {
 	// on a busy router is minutes, and the fault worth seeing is usually older
 	// than that and has happened hundreds of times since.
 	CoreFaults []CoreFault `json:"core_faults,omitempty"`
+
+	// SystemFirewallDown says the device's own firewall is not in the kernel —
+	// not this daemon's capture rules, OpenWrt's. That means no masquerade,
+	// which means nothing behind this router can reach the internet except
+	// through the tunnel.
+	//
+	// It is reported here because of when it is discovered. A router whose
+	// clients go through the tunnel never consults the masquerade, so the fault
+	// is invisible for as long as the tunnel is up and arrives, in full, the
+	// moment somebody disconnects — at which point the router itself still
+	// pings, still resolves names, and the configuration still says it
+	// masquerades. Every obvious check passes and the clients have nothing.
+	SystemFirewallDown bool `json:"system_firewall_down,omitempty"`
+	// SystemFirewallReason is what the firewall said when asked why, which is
+	// usually the file it cannot parse. Empty when it had nothing to say, which
+	// normally means it was simply never started.
+	SystemFirewallReason string `json:"system_firewall_reason,omitempty"`
 }
 
 // CoreFault is one error a child process keeps producing, and how much.

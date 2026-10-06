@@ -27,6 +27,7 @@ import (
 	"xwrt/internal/proc"
 	"xwrt/internal/selftest"
 	"xwrt/internal/ucicfg"
+	"xwrt/internal/update"
 	"xwrt/internal/xray"
 )
 
@@ -115,6 +116,11 @@ type Engine struct {
 
 	// When the connection table was last reported as nearly full.
 	conntrackWarnedAt time.Time
+
+	// The device's own firewall, cached. Its own lock, and not taken while this
+	// engine's is held: finding the answer runs a process, and every status poll
+	// would otherwise wait for one.
+	fwWatch *fwWatch
 }
 
 // memberLiveWindow is how long a member stays "in use" after its last byte.
@@ -141,8 +147,26 @@ const statsInterval = 2 * time.Second
 func New(store *ucicfg.Store, uci *ucicfg.UCI, log *LogRing) *Engine {
 	// 300 samples at two seconds is ten minutes of history, a few tens of
 	// kilobytes.
-	return &Engine{store: store, uci: uci, Log: log, history: NewHistory(300),
-		stopCh: make(chan struct{})}
+	e := &Engine{store: store, uci: uci, Log: log, history: NewHistory(300),
+		fwWatch: newFWWatch(), stopCh: make(chan struct{})}
+	// Said in the log as well as on the status page, because the person who
+	// notices this is usually reading a log somebody asked them for.
+	e.fwWatch.onDown = func(reason string) {
+		step := e.Log.Step(model.StepFirewall)
+		msg := "this device's own firewall is not loaded in the kernel, so there " +
+			"is no masquerade: nothing behind this router can reach the internet " +
+			"except through the tunnel, and switching the tunnel off will look " +
+			"like a total outage for every client while the router itself stays " +
+			"perfectly online"
+		if reason != "" {
+			msg += ". " + reason
+		}
+		step.Warnf("%s", msg)
+	}
+	// The updater fetches through the tunnel whenever there is one. See
+	// updateroute.go.
+	update.Route(e.updateDial)
+	return e
 }
 
 // Traffic returns the live throughput view.
@@ -184,6 +208,10 @@ func (e *Engine) refreshEnvLocked() {
 
 // Status reports the current runtime state.
 func (e *Engine) Status() model.Status {
+	// Before the lock, because it has a lock of its own and nothing good comes
+	// of holding two.
+	sysFW := e.systemFirewall()
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -228,7 +256,21 @@ func (e *Engine) Status() model.Status {
 		st.WANGateway = e.env.WANGateway
 		st.Firewall = string(e.env.Firewall)
 	}
+	if sysFW.Down() {
+		st.SystemFirewallDown = true
+		st.SystemFirewallReason = sysFW.Reason
+	}
 	return st
+}
+
+// systemFirewall reports the state of the device's own firewall, or nothing at
+// all on an engine built without the watcher — which is every engine in a test
+// that only wanted a status.
+func (e *Engine) systemFirewall() fw.SystemState {
+	if e.fwWatch == nil {
+		return fw.SystemState{}
+	}
+	return e.fwWatch.get()
 }
 
 // Connect brings up the given target, replacing any active connection. The ID
