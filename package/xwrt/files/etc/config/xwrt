@@ -43,6 +43,15 @@ config xwrt 'main'
 	# other modes; they carry UDP themselves.
 	option block_quic '1'
 
+	# Set the clock from the network when it is far enough out to matter.
+	#
+	# A board with no battery boots in 1970 and waits for NTP, which here is on
+	# the far side of the tunnel; a wrong clock rejects every TLS certificate as
+	# not yet valid, and REALITY compares the client's clock against the
+	# server's. The time is read from three independent sites and only used
+	# when two of them agree.
+	option sync_time '1'
+
 	# Expose the SOCKS/HTTP inbounds to the LAN, not just to the router.
 	option allow_lan '1'
 

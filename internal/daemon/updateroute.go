@@ -27,9 +27,9 @@ import (
 // can be in flight when the tunnel comes up or goes down, and the right answer
 // is the one that is true when the connection is actually opened.
 
-// updateDial is handed to the update package and called for every connection it
-// makes.
-func (e *Engine) updateDial(ctx context.Context, network, addr string) (net.Conn, error) {
+// dialByTunnel is handed to the update package, and used by the clock probe, and
+// called for every connection either of them makes.
+func (e *Engine) dialByTunnel(ctx context.Context, network, addr string) (net.Conn, error) {
 	if proxy := e.updateProxy(addr); proxy != "" {
 		return update.Via(proxy)(ctx, network, addr)
 	}

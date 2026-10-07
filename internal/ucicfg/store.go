@@ -123,6 +123,7 @@ func (s *Store) load() (*Data, error) {
 		}
 		st.ProxyRouter = toBool(m.Get("proxy_router"), st.ProxyRouter)
 		st.BlockQUIC = toBool(m.Get("block_quic"), st.BlockQUIC)
+		st.SyncTime = toBool(m.Get("sync_time"), st.SyncTime)
 		if v := m.Get("log_level"); v != "" {
 			st.LogLevel = v
 		}
@@ -283,6 +284,7 @@ func (s *Store) save(d *Data) error {
 	main.Set("dns_mode", string(st.DNSMode))
 	main.Set("proxy_router", fromBool(st.ProxyRouter))
 	main.Set("block_quic", fromBool(st.BlockQUIC))
+	main.Set("sync_time", fromBool(st.SyncTime))
 	main.Set("log_level", st.LogLevel)
 	main.Set("allow_lan", fromBool(st.AllowLAN))
 	main.Set("auto_connect", fromBool(st.AutoConnect))

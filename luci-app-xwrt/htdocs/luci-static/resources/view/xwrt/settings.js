@@ -117,6 +117,10 @@ return view.extend({
 			_('Capture not only forwarded LAN traffic but what the router itself produces. With this on, the device\'s own business — package updates, the DDNS client, NTP — goes through the tunnel too: sometimes that is the point, and sometimes it is how you lose remote access.'));
 		o.default = '0';
 
+		o = s.taboption('general', form.Flag, 'sync_time', _('Set the clock from the network'),
+			_('Most routers have no battery-backed clock, so they boot in 1970 and wait for NTP — which here is on the far side of the tunnel. A wrong clock rejects every TLS certificate as not yet valid, and REALITY compares the client\'s clock against the server\'s inside a window the server sets, so a minute out can be a connection that never establishes and never says why. The time is read from three independent sites, over plain HTTP because validating a certificate would need the clock being looked for, and it is only used when two of them agree.'));
+		o.default = '1';
+
 		o = s.taboption('general', form.Flag, 'allow_lan', _('Open SOCKS/HTTP to the LAN'),
 			_('Besides transparent capture, let LAN clients use the SOCKS and HTTP inbounds directly.'));
 		o.default = '1';

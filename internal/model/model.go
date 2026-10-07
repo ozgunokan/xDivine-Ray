@@ -681,6 +681,22 @@ type Settings struct {
 	// It does nothing in the other three modes, which carry UDP themselves.
 	BlockQUIC bool `json:"block_quic"`
 
+	// SyncTime sets this device's clock from the network when it is far enough
+	// out to matter, before connecting and again once the tunnel is up.
+	//
+	// It is on by default, and it is on because of a deadlock most routers
+	// cannot get out of on their own. A board with no battery-backed clock
+	// boots in 1970 and waits for NTP; here the way out is the tunnel, the
+	// tunnel needs a clock that TLS will accept, and REALITY compares the
+	// client's clock against the server's inside a window the server chooses.
+	// So the device cannot reach the network to learn the time, because it does
+	// not know the time.
+	//
+	// Writing the system clock is an intrusive thing for a VPN manager to do,
+	// which is why it is a setting and not a given. See timesync.go for how the
+	// time is found and why a single source is never trusted with it.
+	SyncTime bool `json:"sync_time"`
+
 	// ConnIdle is how many seconds a connection may carry no data before the
 	// core closes it.
 	//
@@ -799,7 +815,11 @@ func Defaults() Settings {
 		// off would mean the default behaviour of that mode is to let every
 		// QUIC connection past the tunnel, which is not something anyone
 		// choosing a proxy mode is asking for.
-		BlockQUIC:   true,
+		BlockQUIC: true,
+		// On, because the device this runs on usually has no clock of its own
+		// and the thing that would fix that is on the far side of the tunnel
+		// it cannot open with a wrong clock.
+		SyncTime:    true,
 		UpdateCheck: true,
 		UpdateRepo:  DefaultUpdateRepo,
 		IPv6:        false,

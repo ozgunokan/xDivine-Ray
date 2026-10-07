@@ -565,6 +565,10 @@ var TR = {
 		"Yönlendiricinin kendi trafiğini de proxy'le",
 	"Capture not only forwarded LAN traffic but what the router itself produces. With this on, the device's own business — package updates, the DDNS client, NTP — goes through the tunnel too: sometimes that is the point, and sometimes it is how you lose remote access.":
 		"Yalnızca yönlendirilen LAN trafiğini değil, yönlendiricinin kendi ürettiği trafiği de yakala. Açtığınızda paket güncellemeleri, DDNS istemcisi, NTP gibi cihazın kendi işleri de tünelden geçer — bu bazen istenen şeydir, bazen de uzaktan erişiminizi kaybetmenizin sebebi.",
+	"Set the clock from the network":
+		"Saati ağdan ayarla",
+	"Most routers have no battery-backed clock, so they boot in 1970 and wait for NTP — which here is on the far side of the tunnel. A wrong clock rejects every TLS certificate as not yet valid, and REALITY compares the client's clock against the server's inside a window the server sets, so a minute out can be a connection that never establishes and never says why. The time is read from three independent sites, over plain HTTP because validating a certificate would need the clock being looked for, and it is only used when two of them agree.":
+		"Çoğu yönlendiricide pilli saat yoktur; 1970'te açılıp NTP'yi beklerler — ki burada NTP tünelin öbür tarafındadır. Saati yanlış olan cihaz her TLS sertifikasını \"henüz geçerli değil\" diye reddeder; REALITY ise istemcinin saatini sunucunun saatiyle, sunucunun belirlediği bir pencere içinde karşılaştırır. Yani bir dakikalık fark, hiç kurulmayan ve sebebini söylemeyen bir bağlantı demek olabilir. Saat üç bağımsız siteden okunur — sertifika doğrulamak aranan saati gerektireceği için düz HTTP üzerinden — ve ancak ikisi aynı şeyi söylerse kullanılır.",
 	"Open SOCKS/HTTP to the LAN":
 		"SOCKS/HTTP'yi LAN'a aç",
 	"Besides transparent capture, let LAN clients use the SOCKS and HTTP inbounds directly.":

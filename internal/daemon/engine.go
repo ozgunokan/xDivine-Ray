@@ -165,7 +165,7 @@ func New(store *ucicfg.Store, uci *ucicfg.UCI, log *LogRing) *Engine {
 	}
 	// The updater fetches through the tunnel whenever there is one. See
 	// updateroute.go.
-	update.Route(e.updateDial)
+	update.Route(e.dialByTunnel)
 	return e
 }
 
@@ -282,6 +282,13 @@ func (e *Engine) systemFirewall() fw.SystemState {
 // their own, which is what stops one failure from appearing three times at
 // three levels of wrapping.
 func (e *Engine) Connect(targetID string) error {
+	// A clock that cannot possibly be right is fixed before anything dials,
+	// because nothing after this point works with one: TLS rejects every
+	// certificate as not yet valid and REALITY's own check fails. Only when it
+	// is impossible, so a device with a working clock pays nothing for it. See
+	// timesync.go.
+	e.SyncClockIfUnset(context.Background())
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -297,6 +304,11 @@ func (e *Engine) Connect(targetID string) error {
 	// Only a connect that got all the way through clears the banner; a failed
 	// one has just filed a fresh error.
 	e.Log.ClearLastError()
+	// And now that there is a way out, the time is checked properly — through
+	// the tunnel, which on a line that reaches nothing else is the only way it
+	// can be. In the background: nothing about this connection depends on it,
+	// and it waits on the lock this function still holds.
+	go e.SyncClock(context.Background())
 	return nil
 }
 

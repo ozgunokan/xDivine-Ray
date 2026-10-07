@@ -616,9 +616,14 @@ func Build(o Options) (*Config, error) {
 		Outbound{
 			Tag:      TagDirect,
 			Protocol: "freedom",
-			Settings: map[string]any{"domainStrategy": "UseIP"},
+			// Not in the freedom outbound's own settings, where it used to
+			// live: the core deprecated it there, migrates the value to
+			// sockopt on every start with a warning in the log, and says it
+			// will stop doing so. The day it stops, the value is silently
+			// dropped rather than refused — a configuration that looks
+			// unchanged and resolves differently.
 			StreamSettings: &StreamSettings{
-				Sockopt: &Sockopt{Mark: mark},
+				Sockopt: &Sockopt{Mark: mark, DomainStrategy: "UseIP"},
 			},
 		},
 		Outbound{Tag: TagBlock, Protocol: "blackhole"},
